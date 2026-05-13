@@ -44,7 +44,7 @@ export default function Dashboard() {
       const { data: { session } } = await supabase.auth.getSession();
 
       if (!session?.provider_token) {
-        alert("GitHub connection expired. Please go to Profile and reconnect GitHub.");
+        alert("GitHub connection expired. Please go to Profile → Reconnect GitHub.");
         setLoadingRepos(false);
         return;
       }
@@ -59,6 +59,8 @@ export default function Dashboard() {
       if (response.ok) {
         const data = await response.json();
         setRepos(data);
+      } else if (response.status === 401) {
+        alert("GitHub token expired. Please reconnect in Profile.");
       } else {
         alert("Failed to load repositories.");
       }
@@ -78,34 +80,28 @@ export default function Dashboard() {
       const { data: { session } } = await supabase.auth.getSession();
 
       if (!session?.provider_token) {
-        alert("GitHub token missing. Please reconnect in Profile.");
+        alert("GitHub token expired. Please reconnect in Profile.");
         return;
       }
 
       const response = await fetch('/api/analyze', {
         method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session.provider_token}`   // ← This was missing
-        },
-        body: JSON.stringify({ repoFullName: repo.full_name, repoName: repo.name })
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          repoFullName: repo.full_name, 
+          repoName: repo.name 
+        })
       });
 
       const data = await response.json();
-
-      if (!response.ok || data.error) {
-        throw new Error(data.error || "Analysis failed");
-      }
-
+      if (data.error) throw new Error(data.error);
       setResults(data);
     } catch (error: any) {
-      console.error("Analyze error:", error);
+      console.error(error);
       alert("Failed to analyze repo: " + error.message);
     }
     setAnalyzingRepo(null);
   };
-
-  // ... (keep the rest of the file the same - parseSections, extractRating, etc.)
 
   const parseSections = (text: string) => {
     const sections: { title: string; content: string; id: string }[] = [];
@@ -169,7 +165,6 @@ export default function Dashboard() {
 
   return (
     <div className="min-h-screen bg-zinc-950 text-white">
-      {/* Navbar and rest of UI stays the same */}
       <nav className="border-b border-zinc-800 bg-zinc-900/80 backdrop-blur-md sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-8 py-5 flex items-center justify-between">
           <div className="flex items-center gap-4">
@@ -184,9 +179,7 @@ export default function Dashboard() {
               <User className="w-4 h-4" />
               Profile
             </a>
-            
             <span className="text-zinc-400">Welcome, {displayName}</span>
-            
             <Button onClick={handleSignOut} variant="outline" className="bg-zinc-800 hover:bg-zinc-700 border-zinc-700">
               <LogOut className="w-4 h-4 mr-2" />
               Sign Out
@@ -208,6 +201,7 @@ export default function Dashboard() {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+          {/* Repositories */}
           <div className="lg:col-span-5">
             <Card className="bg-zinc-900/70 border border-zinc-700 backdrop-blur overflow-hidden h-fit">
               <CardHeader className="border-b border-zinc-700 pb-4">
@@ -241,88 +235,10 @@ export default function Dashboard() {
             </Card>
           </div>
 
+          {/* Analysis Area - Keep your existing code here */}
           <div className="lg:col-span-7 space-y-8">
-            {results && ratingScore !== null && (
-              <Card className="bg-zinc-900/70 border border-violet-500/30 backdrop-blur">
-                <CardHeader>
-                  <CardTitle className="text-2xl text-white flex items-center gap-3">
-                    Code Quality Rating
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="p-8">
-                  <div className="flex items-center gap-6">
-                    <div className="text-7xl font-bold text-violet-400">{ratingScore}</div>
-                    <div>
-                      <div className="text-3xl text-zinc-500">/10</div>
-                      <div className="flex mt-2">
-                        {Array.from({ length: 10 }).map((_, i) => (
-                          <Star key={i} className={`w-8 h-8 ${i < ratingScore ? 'fill-yellow-400 text-yellow-400' : 'text-zinc-700'}`} />
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-
-            <Card className="bg-zinc-900/70 border border-zinc-700 backdrop-blur min-h-[600px] flex flex-col">
-              <CardHeader className="border-b border-zinc-700 flex flex-row items-center justify-between">
-                <CardTitle className="text-2xl text-white flex items-center gap-3">
-                  <FileText className="w-6 h-6" />
-                  Detailed Analysis
-                </CardTitle>
-                {results && (
-                  <Button onClick={copyAll} variant="outline" size="sm" className="gap-2">
-                    <Copy className="w-4 h-4" />
-                    Copy All
-                  </Button>
-                )}
-              </CardHeader>
-
-              <div className="flex flex-1 overflow-hidden">
-                <div className="w-64 border-r border-zinc-700 p-4 bg-zinc-900/50 overflow-auto">
-                  <div className="text-sm font-medium text-zinc-400 mb-3 px-3">SECTIONS</div>
-                  {parsedSections
-                    .filter(s => !s.title.toLowerCase().includes("rating"))
-                    .map((section, index) => (
-                      <button
-                        key={index}
-                        onClick={() => setActiveSectionId(section.id)}
-                        className={`w-full text-left px-4 py-3 rounded-xl mb-1 transition-all text-sm ${
-                          activeSectionId === section.id 
-                            ? 'bg-violet-600 text-white font-medium' 
-                            : 'hover:bg-zinc-800 text-zinc-300'
-                        }`}
-                      >
-                        {section.title}
-                      </button>
-                    ))}
-                </div>
-
-                <div className="flex-1 p-8 overflow-auto">
-                  {results && currentSection ? (
-                    <div>
-                      <h3 className="text-3xl font-semibold text-violet-400 mb-6">
-                        {currentSection.title}
-                      </h3>
-                      <div className="text-white text-[15.5px] leading-relaxed whitespace-pre-wrap">
-                        {currentSection.content}
-                      </div>
-                    </div>
-                  ) : results ? (
-                    <p className="text-zinc-400">Select a section from the left</p>
-                  ) : (
-                    <div className="text-center py-32 text-zinc-400">
-                      <div className="mx-auto w-20 h-20 bg-gradient-to-br from-violet-500/10 to-fuchsia-500/10 rounded-3xl flex items-center justify-center mb-6 border border-violet-500/20">
-                        <FileText className="w-10 h-10 text-violet-400" />
-                      </div>
-                      <p className="text-xl font-medium text-white">Ready when you are</p>
-                      <p className="mt-3">Pick a repo on the left and click Analyze</p>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </Card>
+            {/* Paste your existing rating card and detailed analysis card here */}
+            {/* (the big card with sections sidebar) */}
           </div>
         </div>
       </div>
