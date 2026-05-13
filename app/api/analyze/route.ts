@@ -63,7 +63,7 @@ export async function POST(request: NextRequest) {
       } catch (e) {}
     }
 
-    const prompt = `You are a Principal Engineer speaking directly to a strong mid-to-senior developer as a peer.
+    const prompt = `You are a Principal Engineer reviewing code written by a strong mid-to-senior developer. Speak directly to them as a peer.
 
 Project: ${repoFullName}
 
@@ -71,37 +71,38 @@ REAL CODE FROM THE REPOSITORY:
 
 ${codeContext}
 
-Strict Instructions:
-- Talk like a senior peer: direct, practical, no fluff.
-- Always reference exact files and functions (e.g. analyzeRepo in app/dashboard/page.tsx, the POST handler in app/api/analyze/route.ts, etc.).
-- When you spot an issue, follow it immediately with a concrete code suggestion showing the improved version.
+**Core Rules:**
+- Be direct, specific, and critical when needed.
+- Always reference exact files and functions by name.
+- When you recommend a change, show the exact code improvement (with before/after style if helpful).
+- Never give generic best-practice advice. Tie everything to the actual code you see.
 
 Use these exact sections:
 
 **SUMMARY**
-One tight paragraph: What is this product?
+One tight paragraph: What is this product actually building?
 
 **CODE QUALITY RATING**
-**Rating: X/10** — Be honest.
+**Rating: X/10** — Be honest with specific reasons.
 
 **ARCHITECTURE**
-Honest feedback on the current design.
+Straight talk about the current design decisions.
 
 **SECURITY REVIEW**
 - Risk level: Low / Medium / High
 - GitHub OAuth + provider_token flow
 - OpenAI key handling
 - API route protection
-- Real risks in this codebase
+- Real risks or strong patterns in this codebase
 
 **MAINTAINABILITY & DX**
-Feedback on organization and developer experience.
+Honest feedback on organization and developer experience.
 
 **RECOMMENDED IMPROVEMENTS**
 Prioritized list of 6–8 concrete changes. For each one:
-- Reference the specific code/file
+- Reference the specific file/function
 - Explain why it matters
-- Give an exact code example of the suggested fix
+- Give an exact code suggestion for the fix
 
 Be sharp, specific, and high-value.`;
 
