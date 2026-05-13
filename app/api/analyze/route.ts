@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
+import { createServerClient } from '@supabase/ssr';
 
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
@@ -7,6 +8,25 @@ const anthropic = new Anthropic({
 
 export async function POST(request: NextRequest) {
   try {
+    // === SERVER-SIDE AUTH CHECK (Highest Priority Fix) ===
+    const supabase = createServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      {
+        cookies: {
+          getAll: () => request.cookies.getAll(),
+          setAll: () => {}, // Not needed for API routes
+        },
+      }
+    );
+
+    const { data: { user } } = await supabase.auth.getUser();
+
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized - Please log in" }, { status: 401 });
+    }
+
+    // Continue with analysis
     const { repoFullName, repoName } = await request.json();
 
     const authHeader = request.headers.get('authorization');
@@ -14,6 +34,7 @@ export async function POST(request: NextRequest) {
 
     if (!token) return NextResponse.json({ error: "GitHub token missing" }, { status: 401 });
 
+    // Fetch important files
     const directories = ['', 'app', 'lib', 'components', 'app/api', 'app/dashboard', 'app/profile', 'app/login'];
     let allFiles: any[] = [];
 
@@ -47,7 +68,7 @@ export async function POST(request: NextRequest) {
         };
         return score(b.name) - score(a.name);
       })
-      .slice(0, 50);
+      .slice(0, 45);
 
     let codeContext = '';
 
@@ -77,22 +98,18 @@ REAL CODE FROM THE REPOSITORY:
 
 ${codeContext}
 
-**Strict Rules:**
-- Be direct, sharp, and high-signal.
-- Always reference exact files and functions.
-- When suggesting a change, give the exact tailored code improvement.
-- Focus on high-impact, senior-level insights.
+Be sharp, specific, and high-signal. Reference exact files and functions. When suggesting changes, give tailored code improvements.
 
 Use these exact sections:
 
 **SUMMARY**
-One tight paragraph: What is this product actually building?
+One tight paragraph: What is this product?
 
 **CODE QUALITY RATING**
-**Rating: X/10** — Be honest.
+**Rating: X/10**
 
 **ARCHITECTURE**
-Honest assessment of the current design.
+Honest assessment.
 
 **SECURITY REVIEW**
 - Risk level: Low / Medium / High
@@ -105,12 +122,12 @@ Honest assessment of the current design.
 Honest feedback.
 
 **RECOMMENDED IMPROVEMENTS**
-Numbered list of 6–8 concrete, high-impact changes. For each item include:
-- File & function
-- Why it matters
-- Exact code suggestion / improved version
+Prioritized list of 6–8 concrete, high-impact changes. For each one:
+- Reference the specific file/function
+- Explain why it matters
+- Give the exact suggested code improvement
 
-Be sharp, specific, and extremely valuable.`
+Be sharp and valuable.`
       }]
     });
 
