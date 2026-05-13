@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { LogOut, RefreshCw, FileText, Star, Copy, User } from "lucide-react";
+import { LogOut, RefreshCw, FileText, Copy, User, Sparkles } from "lucide-react";
 
 export default function Dashboard() {
   const [user, setUser] = useState<any>(null);
@@ -29,7 +29,7 @@ export default function Dashboard() {
         .select('*')
         .eq('user_id', user.id)
         .single();
-      if (data) setProfile(data);
+      setProfile(data);
     }
   };
 
@@ -42,9 +42,8 @@ export default function Dashboard() {
     setLoadingRepos(true);
     try {
       const { data: { session } } = await supabase.auth.getSession();
-
       if (!session?.provider_token) {
-        alert("GitHub connection expired. Please go to Profile → Reconnect GitHub.");
+        alert("GitHub connection expired. Please reconnect in Profile.");
         setLoadingRepos(false);
         return;
       }
@@ -59,26 +58,21 @@ export default function Dashboard() {
       if (response.ok) {
         const data = await response.json();
         setRepos(data);
-      } else if (response.status === 401) {
-        alert("GitHub token expired. Please reconnect in Profile.");
-      } else {
-        alert("Failed to load repositories.");
       }
     } catch (error) {
       console.error(error);
-      alert("Error loading repositories");
+      alert("Failed to load repositories");
     }
     setLoadingRepos(false);
   };
 
-  const analyzeRepo = async (repo: any) => {
+  const analyzeRepo = async (repo: any, mode: 'normal' | '10star' = 'normal') => {
     setAnalyzingRepo(repo.full_name);
     setResults(null);
     setActiveSectionId("summary");
 
     try {
       const { data: { session } } = await supabase.auth.getSession();
-
       if (!session?.provider_token) {
         alert("GitHub token expired. Please reconnect in Profile.");
         return;
@@ -92,13 +86,14 @@ export default function Dashboard() {
         },
         body: JSON.stringify({ 
           repoFullName: repo.full_name, 
-          repoName: repo.name 
+          repoName: repo.name,
+          mode 
         })
       });
 
       const data = await response.json();
       if (data.error) throw new Error(data.error);
-      setResults(data);
+      setResults({ ...data, repoData: repo });
     } catch (error: any) {
       console.error(error);
       alert("Failed to analyze repo: " + error.message);
@@ -107,38 +102,13 @@ export default function Dashboard() {
   };
 
   const parseSections = (text: string) => {
-    const sections: { title: string; content: string; id: string }[] = [];
-    let currentTitle = '';
-    let currentContent: string[] = [];
-
-    const lines = text.split('\n');
-
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (trimmed.match(/^\*\*.*?\*\*$/) || trimmed.match(/^#{1,3}\s/)) {
-        if (currentTitle) {
-          sections.push({
-            title: currentTitle,
-            content: currentContent.join('\n').trim(),
-            id: currentTitle.toLowerCase().replace(/\s+/g, '-')
-          });
-        }
-        currentTitle = trimmed.replace(/^\*\*|\*\*$|^#{1,3}\s/g, '').trim();
-        currentContent = [];
-      } else if (currentTitle) {
-        currentContent.push(line);
-      }
-    }
-
-    if (currentTitle) {
-      sections.push({
-        title: currentTitle,
-        content: currentContent.join('\n').trim(),
-        id: currentTitle.toLowerCase().replace(/\s+/g, '-')
-      });
-    }
-
-    return sections.length > 0 ? sections : [{ title: "Analysis", content: text, id: "analysis" }];
+    const sections = text.split(/\n\n(?=##|###|\*\*)/).map(section => {
+      const titleMatch = section.match(/^(##|###|\*\*)(.+?)\*\*/m) || section.match(/^(.+?)(?=\n)/);
+      const title = titleMatch ? titleMatch[2] || titleMatch[1] : "Section";
+      const id = title.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+      return { id, title: title.trim(), content: section.trim() };
+    });
+    return sections;
   };
 
   const parsedSections = results?.analysis ? parseSections(results.analysis) : [];
@@ -154,17 +124,13 @@ export default function Dashboard() {
   const copyAll = () => {
     if (results?.analysis) {
       navigator.clipboard.writeText(results.analysis);
-      alert("All results copied!");
+      alert("Analysis copied to clipboard!");
     }
   };
 
   const displayName = profile && (profile.first_name || profile.last_name) 
     ? `${profile.first_name} ${profile.last_name}`.trim() 
     : user?.email?.split('@')[0] || 'User';
-
-  if (!user) {
-    return <div className="min-h-screen bg-zinc-950 flex items-center justify-center text-white text-xl">Loading Eiwi...</div>;
-  }
 
   return (
     <div className="min-h-screen bg-zinc-950 text-white">
@@ -195,7 +161,7 @@ export default function Dashboard() {
         <div className="flex justify-between items-end mb-10">
           <div>
             <h2 className="text-5xl font-bold tracking-tight">Dashboard</h2>
-            <p className="text-zinc-400 mt-2 text-lg">AI-powered testing & documentation</p>
+            <p className="text-zinc-400 mt-2 text-lg">AI-powered code analysis</p>
           </div>
           <Button onClick={fetchRepos} disabled={loadingRepos} size="lg" className="gap-3">
             <RefreshCw className={`w-5 h-5 ${loadingRepos ? 'animate-spin' : ''}`} />
@@ -204,124 +170,125 @@ export default function Dashboard() {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-          {/* Repositories */}
+          {/* Repositories List */}
           <div className="lg:col-span-5">
             <Card className="bg-zinc-900/70 border border-zinc-700 backdrop-blur overflow-hidden h-fit">
               <CardHeader className="border-b border-zinc-700 pb-4">
                 <CardTitle className="text-2xl text-white">Your Repositories</CardTitle>
               </CardHeader>
-              <CardContent className="pt-6">
+              <CardContent className="pt-6 space-y-4">
                 {repos.length > 0 ? (
-                  <div className="space-y-4">
-                    {repos.map((repo) => (
-                      <div key={repo.id} className="flex justify-between items-center p-5 bg-zinc-800/80 rounded-2xl hover:border-violet-500/30 border border-transparent transition-all">
-                        <div className="flex-1">
-                          <p className="font-semibold text-lg text-white">{repo.name}</p>
-                          <p className="text-zinc-400 text-sm mt-1">{repo.description || 'No description'}</p>
-                        </div>
+                  repos.map((repo) => (
+                    <div key={repo.id} className="p-5 bg-zinc-800/80 rounded-2xl border border-transparent hover:border-violet-500/30 transition-all flex justify-between items-center">
+                      <div>
+                        <p className="font-semibold text-lg text-white">{repo.name}</p>
+                        <p className="text-zinc-400 text-sm mt-1 line-clamp-2">{repo.description || 'No description'}</p>
+                      </div>
+                      <div className="flex gap-3">
                         <Button 
-                          onClick={() => analyzeRepo(repo)}
+                          onClick={() => analyzeRepo(repo, 'normal')}
                           disabled={analyzingRepo === repo.full_name}
-                          className="bg-violet-600 hover:bg-violet-700 px-8"
+                          className="bg-violet-600 hover:bg-violet-700 px-6"
                         >
                           {analyzingRepo === repo.full_name ? "Analyzing..." : "Analyze"}
                         </Button>
+                        <Button 
+                          onClick={() => analyzeRepo(repo, '10star')}
+                          disabled={analyzingRepo === repo.full_name}
+                          variant="outline"
+                          className="border-violet-500 text-violet-400 hover:bg-violet-950"
+                        >
+                          <Sparkles className="w-4 h-4 mr-1" />
+                          10 Stars
+                        </Button>
                       </div>
-                    ))}
-                  </div>
+                    </div>
+                  ))
                 ) : (
                   <div className="text-center py-20 text-zinc-400">
-                    Click "Refresh Repositories" to load your repos
+                    No repositories loaded. Click Refresh above.
                   </div>
                 )}
               </CardContent>
             </Card>
           </div>
 
-          {/* Analysis Area - Consolidated Sections */}
-          <div className="lg:col-span-7 space-y-8">
-            {results && ratingScore !== null && (
-              <Card className="bg-zinc-900/70 border border-violet-500/30 backdrop-blur">
-                <CardHeader>
-                  <CardTitle className="text-2xl text-white flex items-center gap-3">
-                    Code Quality Rating
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="p-8">
-                  <div className="flex items-center gap-6">
-                    <div className="text-7xl font-bold text-violet-400">{ratingScore}</div>
-                    <div>
-                      <div className="text-3xl text-zinc-500">/10</div>
-                      <div className="flex mt-2">
-                        {Array.from({ length: 10 }).map((_, i) => (
-                          <Star key={i} className={`w-8 h-8 ${i < ratingScore ? 'fill-yellow-400 text-yellow-400' : 'text-zinc-700'}`} />
+          {/* Detailed Analysis */}
+          <div className="lg:col-span-7">
+            <Card className="bg-zinc-900/70 border border-zinc-700 backdrop-blur overflow-hidden">
+              <CardHeader className="border-b border-zinc-700 pb-4 flex flex-row items-center justify-between">
+                <CardTitle className="text-2xl text-white flex items-center gap-3">
+                  <FileText className="w-6 h-6 text-violet-400" />
+                  Detailed Analysis
+                </CardTitle>
+
+                <div className="flex items-center gap-3">
+                  {/* 10 Stars Button - Purple with black text */}
+                  <Button 
+                    onClick={() => results?.repoData && analyzeRepo(results.repoData, '10star')}
+                    disabled={!results}
+                    className="bg-violet-600 hover:bg-violet-700 text-black font-medium px-6 flex items-center gap-2"
+                  >
+                    <Sparkles className="w-4 h-4" />
+                    10 Stars
+                  </Button>
+
+                  {/* Copy All */}
+                  <Button 
+                    onClick={copyAll} 
+                    disabled={!results}
+                    variant="outline"
+                    className="border-zinc-700 hover:bg-zinc-800"
+                  >
+                    <Copy className="w-4 h-4 mr-2" />
+                    Copy All
+                  </Button>
+                </div>
+              </CardHeader>
+
+              <CardContent className="p-0">
+                {results ? (
+                  <div className="flex h-[700px]">
+                    {/* Sidebar */}
+                    <div className="w-64 border-r border-zinc-700 p-4 bg-zinc-950 overflow-auto">
+                      <div className="uppercase text-xs tracking-widest text-zinc-500 mb-3">SECTIONS</div>
+                      <div className="space-y-1">
+                        {parsedSections.map((section) => (
+                          <button
+                            key={section.id}
+                            onClick={() => setActiveSectionId(section.id)}
+                            className={`w-full text-left px-4 py-3 rounded-xl transition-all ${
+                              activeSectionId === section.id 
+                                ? 'bg-violet-600 text-white' 
+                                : 'hover:bg-zinc-800 text-zinc-400'
+                            }`}
+                          >
+                            {section.title}
+                          </button>
                         ))}
                       </div>
                     </div>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
 
-            <Card className="bg-zinc-900/70 border border-zinc-700 backdrop-blur min-h-[600px] flex flex-col">
-              <CardHeader className="border-b border-zinc-700 flex flex-row items-center justify-between">
-                <CardTitle className="text-2xl text-white flex items-center gap-3">
-                  <FileText className="w-6 h-6" />
-                  Detailed Analysis
-                </CardTitle>
-                {results && (
-                  <Button onClick={copyAll} variant="outline" size="sm" className="gap-2">
-                    <Copy className="w-4 h-4" />
-                    Copy All
-                  </Button>
-                )}
-              </CardHeader>
-
-              <div className="flex flex-1 overflow-hidden">
-                {/* Sidebar */}
-                <div className="w-64 border-r border-zinc-700 p-4 bg-zinc-900/50 overflow-auto">
-                  <div className="text-sm font-medium text-zinc-400 mb-3 px-3">SECTIONS</div>
-                  {parsedSections
-                    .filter(s => !s.title.toLowerCase().includes("rating"))
-                    .map((section, index) => (
-                      <button
-                        key={index}
-                        onClick={() => setActiveSectionId(section.id)}
-                        className={`w-full text-left px-4 py-3 rounded-xl mb-1 transition-all text-sm ${
-                          activeSectionId === section.id 
-                            ? 'bg-violet-600 text-white font-medium' 
-                            : 'hover:bg-zinc-800 text-zinc-300'
-                        }`}
-                      >
-                        {section.title}
-                      </button>
-                    ))}
-                </div>
-
-                {/* Main Content - All sections in one clean view */}
-                <div className="flex-1 p-8 overflow-auto">
-                  {results && currentSection ? (
-                    <div className="prose prose-invert max-w-none">
-                      <h3 className="text-3xl font-semibold text-violet-400 mb-6">
-                        {currentSection.title}
+                    {/* Main Content */}
+                    <div className="flex-1 p-8 overflow-auto bg-gradient-to-br from-zinc-950 to-zinc-900">
+                      <h3 className="text-3xl font-bold text-violet-400 mb-6">
+                        {currentSection?.title || "Summary"}
                       </h3>
-                      <div className="text-white text-[15.5px] leading-relaxed whitespace-pre-wrap">
-                        {currentSection.content}
+                      <div className="prose prose-invert max-w-none text-zinc-200 leading-relaxed">
+                        {currentSection?.content || results.analysis}
                       </div>
                     </div>
-                  ) : results ? (
-                    <p className="text-zinc-400">Select a section from the left</p>
-                  ) : (
-                    <div className="text-center py-32 text-zinc-400">
-                      <div className="mx-auto w-20 h-20 bg-gradient-to-br from-violet-500/10 to-fuchsia-500/10 rounded-3xl flex items-center justify-center mb-6 border border-violet-500/20">
-                        <FileText className="w-10 h-10 text-violet-400" />
-                      </div>
-                      <p className="text-xl font-medium text-white">Ready when you are</p>
-                      <p className="mt-3">Pick a repo on the left and click Analyze</p>
+                  </div>
+                ) : (
+                  <div className="h-[600px] flex flex-col items-center justify-center text-center text-zinc-400">
+                    <div className="w-20 h-20 bg-zinc-800 rounded-3xl flex items-center justify-center mb-6">
+                      <FileText className="w-10 h-10 text-violet-500" />
                     </div>
-                  )}
-                </div>
-              </div>
+                    <p className="text-xl font-medium text-white">Ready when you are</p>
+                    <p className="mt-2">Pick a repo on the left and click Analyze or 10 Stars</p>
+                  </div>
+                )}
+              </CardContent>
             </Card>
           </div>
         </div>
