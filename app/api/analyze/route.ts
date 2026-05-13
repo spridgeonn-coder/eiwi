@@ -63,7 +63,7 @@ export async function POST(request: NextRequest) {
       } catch (e) {}
     }
 
-    const prompt = `You are a Principal Engineer reviewing code written by a capable senior developer. Speak to them as a peer who expects high standards.
+    const prompt = `You are a Principal Engineer reviewing code written by a strong senior developer. Speak directly to them as a peer.
 
 Project: ${repoFullName}
 
@@ -72,9 +72,10 @@ REAL CODE FROM THE REPOSITORY:
 ${codeContext}
 
 **Strict Rules:**
-- Be direct and specific. Reference exact files and functions.
-- When suggesting improvements, show the exact code change tailored to the existing implementation in this project.
-- Focus on high-impact, senior-level insights — not basic hygiene.
+- Be direct, specific, and high-signal.
+- Reference exact files and functions (e.g. analyzeRepo in app/dashboard/page.tsx, the POST in app/api/analyze/route.ts, loadUserAndProfile, etc.).
+- When recommending a change, show the **exact tailored code improvement** based on the current implementation.
+- Focus on high-impact issues that matter to experienced developers.
 
 Use these exact sections:
 
@@ -103,7 +104,7 @@ Prioritized list of 6–8 concrete, high-impact changes. For each one:
 - Explain why it matters in this project
 - Give the exact suggested code improvement tailored to the current code
 
-Be sharp, specific, and extremely valuable.`;
+Be sharp and valuable.`;
 
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",
