@@ -3,15 +3,15 @@ import OpenAI from 'openai';
 import Anthropic from '@anthropic-ai/sdk';
 import { createServerClient } from '@supabase/ssr';
 
+// Rate limiting (per user, per minute)
+const rateLimit = new Map<string, { count: number; resetTime: number }>();
+
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
-// Simple rate limiting (per user, per minute)
-const rateLimit = new Map<string, { count: number; resetTime: number }>();
-
 export async function POST(request: NextRequest) {
   try {
-    // Server-side auth
+    // Server-side authentication
     const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -28,7 +28,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized - Please log in" }, { status: 401 });
     }
 
-    // Rate limiting
+    // Basic rate limiting
     const userId = user.id;
     const now = Date.now();
     let record = rateLimit.get(userId) || { count: 0, resetTime: now + 60000 };
@@ -52,7 +52,7 @@ export async function POST(request: NextRequest) {
 
     if (!token) return NextResponse.json({ error: "GitHub token missing" }, { status: 401 });
 
-    // Fetch files
+    // Fetch repository files
     const directories = ['', 'app', 'lib', 'components', 'app/api', 'app/dashboard', 'app/profile', 'app/login'];
     let allFiles: any[] = [];
 
@@ -105,24 +105,32 @@ export async function POST(request: NextRequest) {
     let analysisText = '';
 
     if (mode === '10star') {
-      // Claude for deep 10-star analysis
+      // Claude for deep, high-quality 10-star analysis
       const message = await anthropic.messages.create({
         model: "claude-sonnet-4-6",
         max_tokens: 4000,
         temperature: 0.5,
         messages: [{
           role: "user",
-          content: `You are a Principal Engineer... [your best 10-star prompt here]`
+          content: `You are a Principal Engineer giving a high-signal review.
+
+Project: ${repoFullName}
+
+REAL CODE:
+
+${codeContext}
+
+Give a senior-level roadmap to turn this into a 10-star project. Be specific and reference exact files.`
         }]
       });
       analysisText = message.content[0].type === 'text' ? message.content[0].text : "No response";
     } else {
-      // GPT-4o-mini for normal fast analysis
+      // GPT-4o-mini for fast, normal analysis
       const completion = await openai.chat.completions.create({
         model: "gpt-4o-mini",
         messages: [{
           role: "user",
-          content: `You are a senior engineer reviewing this repo. Be specific and useful.
+          content: `You are a senior engineer reviewing this repository.
 
 Project: ${repoFullName}
 
@@ -140,7 +148,7 @@ One tight paragraph.
 Risk level and real issues.
 
 **RECOMMENDED IMPROVEMENTS**
-Prioritized list with exact code suggestions where possible.`
+Prioritized list with specific, actionable suggestions.`
         }],
         temperature: 0.5,
       });
