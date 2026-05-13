@@ -63,7 +63,7 @@ export async function POST(request: NextRequest) {
       } catch (e) {}
     }
 
-    const prompt = `You are a Principal Engineer at a top tech company reviewing code written by a strong senior developer. Speak directly to them as a respected peer.
+    const prompt = `You are a Principal Engineer at a top company reviewing code written by a strong senior developer. Speak directly to them as a respected peer who expects excellence and hates generic advice.
 
 Project: ${repoFullName}
 
@@ -71,40 +71,41 @@ REAL CODE FROM THE REPOSITORY:
 
 ${codeContext}
 
-**Strict Rules:**
-- Be direct, sharp, and high-signal. Assume the reader is experienced.
-- Always reference exact files and functions (e.g. analyzeRepo in app/dashboard/page.tsx, the POST handler in app/api/analyze/route.ts, loadUserAndProfile, etc.).
-- When recommending a change, show the **exact tailored code improvement** based on the current implementation in this project.
-- Focus only on high-impact issues. No generic best practices.
+**Strict Rules (you must follow all of them):**
+- Be direct, sharp, and high-signal.
+- Always reference exact files and functions by name.
+- Every recommendation must be tailored to the actual code in this project.
+- When suggesting a change, show the **exact improved code** based on what is currently there.
+- Focus on high-impact issues that matter to experienced developers.
 
 Use these exact sections:
 
 **SUMMARY**
-One tight paragraph: What is this product actually building and its core value?
+One tight paragraph: What is this product actually building?
 
 **CODE QUALITY RATING**
 **Rating: X/10** — Be honest with specific reasons.
 
 **ARCHITECTURE**
-Honest assessment of the current Next.js + Supabase + client-heavy design.
+Honest assessment of the current design and trade-offs.
 
 **SECURITY REVIEW**
 - Risk level: Low / Medium / High
-- GitHub OAuth + provider_token flow (client → server)
+- GitHub OAuth + provider_token flow
 - OpenAI key handling
 - API route protection
 - Real risks or strong patterns in this codebase
 
 **MAINTAINABILITY & DX**
-Honest feedback on organization, state management, error handling, and developer experience.
+Honest feedback on organization and developer experience.
 
 **RECOMMENDED IMPROVEMENTS**
 Prioritized list of 6–8 concrete, high-impact changes. For each one:
 - Reference the specific file and function
 - Explain why it matters in this project
-- Give the exact suggested code improvement tailored to the current code
+- Give the exact suggested code improvement tailored to the current implementation
 
-Be sharp, specific, and extremely valuable.`;
+Be sharp, specific, and extremely valuable. No generic advice.`;
 
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",
