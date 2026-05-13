@@ -14,8 +14,7 @@ export async function POST(request: NextRequest) {
 
     if (!token) return NextResponse.json({ error: "GitHub token missing" }, { status: 401 });
 
-    // Maximum file coverage
-    const directories = ['', 'app', 'lib', 'components', 'app/api', 'app/dashboard', 'app/profile', 'app/login'];
+    const directories = ['', 'app', 'lib', 'components', 'app/api', 'app/dashboard', 'app/profile'];
     let allFiles: any[] = [];
 
     for (const dir of directories) {
@@ -34,7 +33,6 @@ export async function POST(request: NextRequest) {
       } catch (e) {}
     }
 
-    // Ultra-prioritize the most important files
     const priorityFiles = allFiles
       .filter((f: any) => f.type === 'file')
       .sort((a: any, b: any) => {
@@ -60,12 +58,14 @@ export async function POST(request: NextRequest) {
         });
         if (contentRes.ok) {
           const content = await contentRes.text();
-          codeContext += `\n\n=== ${file.path} ===\n${content.substring(0, 8000)}\n`;
+          codeContext += `\n\n=== ${file.path} ===\n${content.substring(0, 8200)}\n`;
         }
       } catch (e) {}
     }
 
-    const prompt = `You are a **Principal Engineer** (ex-Vercel, ex-Stripe, ex-OpenAI) giving a ruthless, high-signal code review to a peer senior developer who expects excellence.
+    const prompt = `You are a **Principal Engineer** (ex-Vercel / Stripe level) speaking directly to a **strong mid-to-senior developer** who built this project.
+
+Your goal is to give **extremely valuable, high-signal feedback** — the kind a senior engineer would actually appreciate and act on. Be direct, critical when needed, and never generic.
 
 Project: ${repoFullName}
 
@@ -73,37 +73,36 @@ REAL CODE FROM THE REPOSITORY:
 
 ${codeContext}
 
-**Strict Instructions:**
-- Reference actual files, functions, and code patterns by name.
-- Never give generic advice. Every point must tie back to something in this codebase.
-- Be critical and direct.
+**Strict Rules for You:**
+- Reference exact files, functions, and code patterns by name.
+- When suggesting improvements, give concrete code examples where helpful.
+- Assume the reader is experienced — skip basic advice.
 
 Use these exact sections:
 
 **SUMMARY**
-One precise paragraph: What is this product? Who is it for? Core value?
+One tight, accurate paragraph: What is this product? Who is it for? Core value?
 
 **CODE QUALITY RATING**
-**Rating: X/10** — Justify honestly with evidence.
+**Rating: X/10** — Be honest and specific.
 
 **ARCHITECTURE**
-Honest assessment of the Next.js + Supabase + AI setup.
+Straight talk about the current design decisions, strengths, and problems.
 
 **SECURITY REVIEW**
-- Overall risk: Low / Medium / High
-- Detailed analysis of GitHub OAuth + provider_token flow (client → server)
-- OpenAI key handling and server-side isolation
-- API route protection (especially /api/analyze)
-- Any actual risks, leaks, or strong practices you observe
-- Specific file and function references
+- Risk level: Low / Medium / High
+- GitHub OAuth + provider_token flow
+- OpenAI key handling
+- API route protection
+- Any real risks or strong practices in this codebase
 
-**MAINTAINABILITY & DEVELOPER EXPERIENCE**
-Code organization, TypeScript quality, error handling, onboarding.
+**MAINTAINABILITY & DX**
+Honest feedback on organization, TypeScript, error handling, and developer experience.
 
 **RECOMMENDED IMPROVEMENTS**
-Prioritized list of 6–8 concrete, high-impact changes with clear reasoning and business value.
+Prioritized list of 6–8 concrete, high-impact changes. For each, explain why it matters and (where useful) give a code snippet.
 
-Be specific, sharp, and valuable. No fluff. No generic security checklist items.`;
+Be sharp, specific, and valuable.`;
 
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",
