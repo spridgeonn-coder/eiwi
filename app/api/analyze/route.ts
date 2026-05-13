@@ -47,7 +47,7 @@ export async function POST(request: NextRequest) {
         };
         return score(b.name) - score(a.name);
       })
-      .slice(0, 45);
+      .slice(0, 50);
 
     let codeContext = '';
 
@@ -64,12 +64,12 @@ export async function POST(request: NextRequest) {
     }
 
     const message = await anthropic.messages.create({
-      model: "claude-sonnet-4-6",           // Updated model name
+      model: "claude-sonnet-4-6",
       max_tokens: 4000,
       temperature: 0.5,
       messages: [{
         role: "user",
-        content: `You are a Principal Engineer reviewing code written by a strong senior developer.
+        content: `You are a Principal Engineer reviewing code written by a strong senior developer. Speak directly to them as a peer.
 
 Project: ${repoFullName}
 
@@ -77,18 +77,22 @@ REAL CODE FROM THE REPOSITORY:
 
 ${codeContext}
 
-Speak directly to them as a peer. Be sharp, specific, and high-signal. Reference exact files and functions. When suggesting changes, give tailored code improvements.
+**Strict Rules:**
+- Be direct, sharp, and high-signal.
+- Always reference exact files and functions.
+- When suggesting a change, give the exact tailored code improvement.
+- Focus on high-impact, senior-level insights.
 
 Use these exact sections:
 
 **SUMMARY**
-One tight paragraph: What is this product?
+One tight paragraph: What is this product actually building?
 
 **CODE QUALITY RATING**
-**Rating: X/10**
+**Rating: X/10** — Be honest.
 
 **ARCHITECTURE**
-Honest assessment.
+Honest assessment of the current design.
 
 **SECURITY REVIEW**
 - Risk level: Low / Medium / High
@@ -101,12 +105,12 @@ Honest assessment.
 Honest feedback.
 
 **RECOMMENDED IMPROVEMENTS**
-Prioritized list of 6–8 concrete, high-impact changes. For each one:
-- Reference the specific file/function
-- Explain why it matters
-- Give the exact suggested code improvement
+Numbered list of 6–8 concrete, high-impact changes. For each item include:
+- File & function
+- Why it matters
+- Exact code suggestion / improved version
 
-Be sharp and valuable.`
+Be sharp, specific, and extremely valuable.`
       }]
     });
 
