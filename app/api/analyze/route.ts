@@ -2,20 +2,23 @@ import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { createServerClient } from '@supabase/ssr';
 
+// Simple in-memory rate limiting (per user, per minute)
+const rateLimit = new Map<string, { count: number; resetTime: number }>();
+
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 });
 
 export async function POST(request: NextRequest) {
   try {
-    // === SERVER-SIDE AUTH CHECK (Highest Priority Fix) ===
+    // ====================== SERVER-SIDE AUTH CHECK ======================
     const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
       {
         cookies: {
           getAll: () => request.cookies.getAll(),
-          setAll: () => {}, // Not needed for API routes
+          setAll: () => {},
         },
       }
     );
@@ -26,7 +29,24 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized - Please log in" }, { status: 401 });
     }
 
-    // Continue with analysis
+    // ====================== RATE LIMITING ======================
+    const userId = user.id;
+    const now = Date.now();
+    let record = rateLimit.get(userId) || { count: 0, resetTime: now + 60000 };
+
+    if (now > record.resetTime) {
+      record.count = 0;
+      record.resetTime = now + 60000; // 1 minute window
+    }
+
+    if (record.count >= 8) { // Max 8 analyzes per minute per user
+      return NextResponse.json({ error: "Rate limit exceeded. Try again in a minute." }, { status: 429 });
+    }
+
+    record.count += 1;
+    rateLimit.set(userId, record);
+
+    // ====================== NORMAL ANALYSIS ======================
     const { repoFullName, repoName } = await request.json();
 
     const authHeader = request.headers.get('authorization');
@@ -34,7 +54,7 @@ export async function POST(request: NextRequest) {
 
     if (!token) return NextResponse.json({ error: "GitHub token missing" }, { status: 401 });
 
-    // Fetch important files
+    // Fetch files
     const directories = ['', 'app', 'lib', 'components', 'app/api', 'app/dashboard', 'app/profile', 'app/login'];
     let allFiles: any[] = [];
 
@@ -90,7 +110,7 @@ export async function POST(request: NextRequest) {
       temperature: 0.5,
       messages: [{
         role: "user",
-        content: `You are a Principal Engineer reviewing code written by a strong senior developer. Speak directly to them as a peer.
+        content: `You are a Principal Engineer reviewing code written by a strong senior developer.
 
 Project: ${repoFullName}
 
