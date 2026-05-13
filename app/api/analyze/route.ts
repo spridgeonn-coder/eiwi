@@ -64,8 +64,8 @@ export async function POST(request: NextRequest) {
       } catch (e) {}
     }
 
-    const message = await anthropic.messages.create({
-      model: "claude-3-5-sonnet-20240620",   // or claude-3-opus-20240229 if you have access
+        const message = await anthropic.messages.create({
+      model: "claude-3-5-sonnet-latest",
       max_tokens: 4000,
       temperature: 0.5,
       messages: [{
