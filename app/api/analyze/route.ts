@@ -21,64 +21,62 @@ export async function POST(request: NextRequest) {
 
     const files = await filesResponse.json();
 
-    // Prioritize important files
-    const priorityFiles = files
+    // Get key files
+    const keyFiles = files
       .filter((f: any) => f.type === 'file')
-      .sort((a: any, b: any) => {
-        if (a.name === 'README.md') return -1;
-        if (b.name === 'README.md') return 1;
-        return 0;
-      })
-      .slice(0, 18);
+      .slice(0, 20);
 
     let codeContext = '';
 
-    for (const file of priorityFiles) {
+    for (const file of keyFiles) {
       try {
         const contentRes = await fetch(file.download_url, {
           headers: { Authorization: `Bearer ${token}` }
         });
         if (contentRes.ok) {
           const content = await contentRes.text();
-          codeContext += `\n\n=== ${file.path} ===\n${content.substring(0, 6500)}\n`;
+          codeContext += `\n\n=== ${file.path} ===\n${content.substring(0, 7000)}\n`;
         }
       } catch (e) {}
     }
 
-    const prompt = `You are a senior full-stack engineer doing a thorough code review.
+    const prompt = `You are a senior security engineer reviewing a real SaaS application.
 
 Project: ${repoFullName}
 
-Here is the actual structure and code from the repository:
+Here is the actual code from the repository:
 
 ${codeContext}
 
-Analyze this **real project** and write a clear, professional review using these exact sections:
+Perform a **detailed, specific security review** using these exact sections:
 
 **SUMMARY**
-Give a concise but accurate description of what this project actually is, its main purpose, and key features. Base it on the code and files you see.
+Briefly describe what this project is.
 
 **CODE QUALITY RATING**
 **Rating: X/10**
-Be honest. Explain your rating with references to specific files or patterns.
 
-**SECURITY REVIEW**
-Rate: Low / Medium / High risk
-Mention any real concerns (API keys, auth, dependencies, etc.) or good practices.
+**SECURITY REVIEW** (This section is critical)
+- Rate overall security risk: Low / Medium / High
+- Specifically analyze how authentication works (Supabase + GitHub OAuth)
+- Check how API keys and tokens (OpenAI, GitHub provider_token) are handled
+- Look for any sensitive data exposure risks
+- Mention specific files and code patterns (e.g. route.ts, supabase client, token passing)
+- Point out real strengths and weaknesses in this codebase
 
 **PERFORMANCE REVIEW**
-Any obvious performance issues or good patterns.
+Any notable observations.
 
 **BEST PRACTICES & STYLE**
-Honest feedback on code organization, naming, architecture.
+Honest feedback.
 
 **MISSING TESTS**
-What tests are missing? Provide 3-5 realistic test examples.
+Gaps and examples.
 
 **IMPROVEMENTS**
-Give 5-7 concrete, actionable suggestions with code snippets where helpful.
+5-7 concrete, actionable suggestions.
 
-Stay grounded in what you actually see in the files.`;
+Be critical and reference actual files and code you see.`;
 
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",
