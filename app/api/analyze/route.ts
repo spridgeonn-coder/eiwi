@@ -58,14 +58,14 @@ export async function POST(request: NextRequest) {
         });
         if (contentRes.ok) {
           const content = await contentRes.text();
-          codeContext += `\n\n=== ${file.path} ===\n${content.substring(0, 8200)}\n`;
+          codeContext += `\n\n=== ${file.path} ===\n${content.substring(0, 8500)}\n`;
         }
       } catch (e) {}
     }
 
-    const prompt = `You are a **Principal Engineer** (ex-Vercel / Stripe level) speaking directly to a **strong mid-to-senior developer** who built this project.
+    const prompt = `You are a **Principal Engineer** speaking directly to a strong mid-to-senior developer who built this project.
 
-Your goal is to give **extremely valuable, high-signal feedback** — the kind a senior engineer would actually appreciate and act on. Be direct, critical when needed, and never generic.
+Your job is to give **extremely valuable, high-leverage feedback** — the kind you'd want to receive on your own code.
 
 Project: ${repoFullName}
 
@@ -73,34 +73,37 @@ REAL CODE FROM THE REPOSITORY:
 
 ${codeContext}
 
-**Strict Rules for You:**
-- Reference exact files, functions, and code patterns by name.
-- When suggesting improvements, give concrete code examples where helpful.
-- Assume the reader is experienced — skip basic advice.
+**Rules:**
+- Be specific. Reference exact files and functions (e.g. `analyzeRepo` in `dashboard/page.tsx`, `POST` in `route.ts`, etc.).
+- When recommending changes, give concrete code snippets where helpful.
+- Assume the reader is experienced — focus on impactful improvements, not basic advice.
 
 Use these exact sections:
 
 **SUMMARY**
-One tight, accurate paragraph: What is this product? Who is it for? Core value?
+One tight paragraph: What is this product?
 
 **CODE QUALITY RATING**
-**Rating: X/10** — Be honest and specific.
+**Rating: X/10**
 
 **ARCHITECTURE**
-Straight talk about the current design decisions, strengths, and problems.
+Honest assessment of the current design. Is it modular? Scalable? Easy to understand? What are the strengths and weaknesses? When discussing all of these topics, be extremely specific and act like you are talking to a peer. Give live code expamles. Call out specific code issues etc. 
 
 **SECURITY REVIEW**
 - Risk level: Low / Medium / High
 - GitHub OAuth + provider_token flow
 - OpenAI key handling
 - API route protection
-- Any real risks or strong practices in this codebase
+- Real risks in this codebase
 
 **MAINTAINABILITY & DX**
-Honest feedback on organization, TypeScript, error handling, and developer experience.
+Feedback on organization and developer experience.
 
 **RECOMMENDED IMPROVEMENTS**
-Prioritized list of 6–8 concrete, high-impact changes. For each, explain why it matters and (where useful) give a code snippet.
+Prioritized list of 6–8 concrete, high-impact changes. For each, include:
+- Why it matters
+- Reference to specific code
+- Suggested implementation (with code snippet if useful)
 
 Be sharp, specific, and valuable.`;
 
