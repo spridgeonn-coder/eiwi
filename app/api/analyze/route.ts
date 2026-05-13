@@ -9,75 +9,84 @@ export async function POST(request: NextRequest) {
   try {
     const { repoFullName, repoName } = await request.json();
 
-    // Fetch repository files
+    // Get session token
+    const authHeader = request.headers.get('authorization');
+    const token = authHeader?.replace('Bearer ', '');
+
+    if (!token) {
+      return NextResponse.json({ error: "No GitHub token" }, { status: 401 });
+    }
+
+    // Fetch files
     const filesResponse = await fetch(`https://api.github.com/repos/${repoFullName}/contents`, {
       headers: {
-        Authorization: `Bearer ${request.headers.get('authorization')?.replace('Bearer ', '')}`,
-        'Accept': 'application/vnd.github.v3+json'
-      }
+        Authorization: `Bearer ${token}`,
+        'Accept': 'application/vnd.github.v3+json',
+      },
     });
 
-    let files = [];
-    if (filesResponse.ok) {
-      files = await filesResponse.json();
+    if (!filesResponse.ok) {
+      return NextResponse.json({ error: "Failed to fetch repo files" }, { status: filesResponse.status });
     }
 
-    // Prioritize important files (limit to ~12 to avoid token limits)
-    const importantExtensions = ['.js', '.ts', '.jsx', '.tsx', '.py', '.go', '.rs', '.java', '.cs', '.php'];
-    const importantFiles = files
-      .filter((f: any) => f.type === 'file' && 
-        (importantExtensions.some(ext => f.name.endsWith(ext)) || 
-         ['package.json', 'requirements.txt', 'Cargo.toml', 'go.mod'].includes(f.name)))
-      .slice(0, 12);
+    const files = await filesResponse.json();
 
-    // Fetch content of important files
+    // Get important files
+    const importantFiles = files
+      .filter((f: any) => f.type === 'file')
+      .slice(0, 15); // Limit to avoid token limits
+
     let codeContext = '';
+
     for (const file of importantFiles) {
       try {
-        const contentRes = await fetch(file.download_url);
+        const contentRes = await fetch(file.download_url, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
         if (contentRes.ok) {
           const content = await contentRes.text();
-          codeContext += `\n\n--- FILE: ${file.path} ---\n${content}\n`;
+          codeContext += `\n\n--- ${file.path} ---\n${content.substring(0, 8000)}\n`; // Limit size
         }
-      } catch (e) {
-        // Skip files we can't fetch
-      }
+      } catch (e) {}
     }
 
-    const prompt = `Repository: ${repoFullName}
+    const prompt = `You are an expert senior software engineer.
 
-Here is the actual code from the most important files:
+Repository: ${repoFullName}
 
-${codeContext || "No file contents could be retrieved."}
+Here is actual code from the repository:
 
-Provide a thorough, expert-level analysis with these exact sections:
+${codeContext || "No code could be retrieved."}
+
+Provide a high-quality, expert-level analysis using these exact sections:
 
 **SUMMARY**
-A detailed paragraph about what this project does.
+Detailed overview of what this project is and does.
 
 **CODE QUALITY RATING**
-Start with exactly: **Rating: X/10**
-Then explain strengths and weaknesses with specific references to the code.
+**Rating: X/10** (be honest)
+Explain strengths and weaknesses with specific file references.
 
 **SECURITY REVIEW**
-Rate risk: Low / Medium / High. List specific issues with file names and code examples.
+Rate: Low / Medium / High
+List real issues with file paths and code snippets.
 
 **PERFORMANCE REVIEW**
-Identify bottlenecks and scalability issues with examples.
+Real performance concerns and bottlenecks.
 
 **BEST PRACTICES & STYLE AUDIT**
-Review code style, architecture, and modern practices.
+Honest feedback on code style and architecture.
 
 **MISSING TESTS**
-Identify untested areas and provide 4-6 high-quality test examples.
+Identify gaps and give 4-6 concrete test examples.
 
 **IMPROVEMENTS**
-Give 4-6 specific, actionable suggestions with code snippets where helpful.
+4-6 actionable suggestions with code examples.
 
-Be extremely concrete and reference actual files/code when possible.`;
+Be critical and specific.`;
 
     const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini",   // Change to "gpt-4o" later for even better quality
+      model: "gpt-4o-mini",
       messages: [{ role: "user", content: prompt }],
       temperature: 0.5,
     });
@@ -89,9 +98,9 @@ Be extremely concrete and reference actual files/code when possible.`;
     });
 
   } catch (error: any) {
-    console.error(error);
+    console.error("Analyze error:", error);
     return NextResponse.json({ 
-      error: "Failed to analyze repository",
+      error: "Analysis failed", 
       details: error.message 
     }, { status: 500 });
   }
