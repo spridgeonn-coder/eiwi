@@ -47,7 +47,7 @@ export default function Profile() {
     if (!user) return;
     setSaving(true);
 
-    const { error } = await supabase
+    await supabase
       .from('profile')
       .upsert({
         user_id: user.id,
@@ -56,13 +56,13 @@ export default function Profile() {
         updated_at: new Date().toISOString()
       });
 
-    if (error) {
-      alert("Failed to save: " + error.message);
-    } else {
-      alert("✅ Profile updated successfully!");
-      setIsEditing(false);
-      loadProfile();
+    if (email !== user.email) {
+      await supabase.auth.updateUser({ email });
     }
+
+    alert("✅ Profile saved!");
+    setIsEditing(false);
+    loadProfile();
     setSaving(false);
   };
 
@@ -71,6 +71,15 @@ export default function Profile() {
     setLastName(profile?.last_name || '');
     setEmail(user?.email || '');
     setIsEditing(false);
+  };
+
+  const reconnectGitHub = async () => {
+    await supabase.auth.signInWithOAuth({
+      provider: 'github',
+      options: {
+        redirectTo: `${window.location.origin}/profile`,
+      },
+    });
   };
 
   const handleSignOut = async () => {
@@ -110,22 +119,17 @@ export default function Profile() {
               <User className="w-6 h-6" />
               Account Information
             </CardTitle>
-            
             {!isEditing && (
-              <Button 
-                onClick={() => setIsEditing(true)} 
-                variant="outline" 
-                className="border-violet-500 text-violet-400 hover:bg-violet-950 hover:text-violet-300"
-              >
+              <Button onClick={() => setIsEditing(true)} variant="outline">
                 <Edit className="w-4 h-4 mr-2" />
-                Edit Profile
+                Edit
               </Button>
             )}
           </CardHeader>
 
           <CardContent className="pt-8 space-y-6">
             {isEditing ? (
-              // Edit Mode
+              // Edit mode
               <>
                 <div className="grid grid-cols-2 gap-6">
                   <div>
@@ -139,42 +143,37 @@ export default function Profile() {
                 </div>
 
                 <div>
-                  <Label>Email Address</Label>
+                  <Label>Email</Label>
                   <Input value={email} onChange={(e) => setEmail(e.target.value)} type="email" className="bg-zinc-800 border-zinc-700 mt-1" />
                 </div>
 
                 <div className="flex gap-3 pt-4">
-                  <Button onClick={saveProfile} disabled={saving} className="flex-1 bg-violet-600 hover:bg-violet-700">
-                    <Save className="w-4 h-4 mr-2" />
+                  <Button onClick={saveProfile} disabled={saving} className="flex-1">
                     Save Changes
                   </Button>
                   <Button onClick={cancelEdit} variant="outline" className="flex-1">
-                    <X className="w-4 h-4 mr-2" />
                     Cancel
                   </Button>
                 </div>
               </>
             ) : (
-              // View Mode
+              // View mode
               <div className="flex items-center gap-6">
-                <div className="w-20 h-20 bg-gradient-to-br from-zinc-700 to-zinc-800 rounded-2xl flex items-center justify-center text-5xl shadow-inner">
+                <div className="w-20 h-20 bg-zinc-700 rounded-2xl flex items-center justify-center text-5xl">
                   👤
                 </div>
                 <div>
-                  <p className="text-3xl font-semibold text-white">
+                  <p className="text-3xl font-semibold">
                     {firstName || lastName ? `${firstName} ${lastName}`.trim() : "No name set"}
                   </p>
-                  <p className="text-zinc-400 text-lg">{email}</p>
-                  <p className="text-zinc-500 text-sm mt-1">
-                    Member since {new Date(user?.created_at).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
-                  </p>
+                  <p className="text-zinc-400">{email}</p>
                 </div>
               </div>
             )}
           </CardContent>
         </Card>
 
-        {/* GitHub Card */}
+        {/* GitHub Connection */}
         <Card className="bg-zinc-900/70 border border-zinc-700 backdrop-blur mt-8">
           <CardHeader className="border-b border-zinc-700 pb-4">
             <CardTitle className="text-2xl text-white flex items-center gap-3">
@@ -188,7 +187,9 @@ export default function Profile() {
                 <p className="font-medium">Connected GitHub Account</p>
                 <p className="text-emerald-400 text-sm mt-1">✅ OAuth connected • Repos accessible</p>
               </div>
-              <Button variant="outline">Reconnect GitHub</Button>
+              <Button onClick={reconnectGitHub} variant="outline">
+                Reconnect GitHub
+              </Button>
             </div>
           </CardContent>
         </Card>
