@@ -14,40 +14,42 @@ export async function POST(request: NextRequest) {
 
     if (!token) return NextResponse.json({ error: "GitHub token missing" }, { status: 401 });
 
-    // Fetch root files
-    const filesResponse = await fetch(`https://api.github.com/repos/${repoFullName}/contents`, {
-      headers: { Authorization: `Bearer ${token}`, 'Accept': 'application/vnd.github.v3+json' }
-    });
+    // Fetch from multiple important directories
+    const directories = ['', 'app', 'lib', 'components', 'app/api', 'app/dashboard'];
+    let allFiles: any[] = [];
 
-    let allFiles: any[] = await filesResponse.json();
-
-    // Also check app/ and lib/ folders if they exist
-    for (const dir of ['app', 'lib', 'components']) {
+    for (const dir of directories) {
       try {
-        const dirRes = await fetch(`https://api.github.com/repos/${repoFullName}/contents/${dir}`, {
-          headers: { Authorization: `Bearer ${token}` }
+        const url = dir 
+          ? `https://api.github.com/repos/${repoFullName}/contents/${dir}`
+          : `https://api.github.com/repos/${repoFullName}/contents`;
+        
+        const res = await fetch(url, {
+          headers: { Authorization: `Bearer ${token}`, 'Accept': 'application/vnd.github.v3+json' }
         });
-        if (dirRes.ok) {
-          const dirFiles = await dirRes.json();
-          allFiles = [...allFiles, ...dirFiles];
+        if (res.ok) {
+          const data = await res.json();
+          allFiles = [...allFiles, ...(Array.isArray(data) ? data : [data])];
         }
       } catch (e) {}
     }
 
-    // Prioritize the most important files
+    // Prioritize the most valuable files
     const priorityFiles = allFiles
       .filter((f: any) => f.type === 'file')
       .sort((a: any, b: any) => {
         const score = (name: string) => {
           if (name.includes('route.ts')) return 100;
+          if (name.includes('supabase')) return 95;
           if (name === 'README.md') return 90;
-          if (name.includes('supabase')) return 80;
-          if (name.includes('page.tsx')) return 70;
-          return 0;
+          if (name.includes('dashboard')) return 85;
+          if (name.includes('page.tsx')) return 80;
+          if (name.includes('analyze')) return 75;
+          return 50;
         };
         return score(b.name) - score(a.name);
       })
-      .slice(0, 22);
+      .slice(0, 28);
 
     let codeContext = '';
 
@@ -58,48 +60,49 @@ export async function POST(request: NextRequest) {
         });
         if (contentRes.ok) {
           const content = await contentRes.text();
-          codeContext += `\n\n=== ${file.path} ===\n${content.substring(0, 7000)}\n`;
+          codeContext += `\n\n=== ${file.path} ===\n${content.substring(0, 6500)}\n`;
         }
       } catch (e) {}
     }
 
-    const prompt = `You are a principal engineer reviewing production code for a peer senior developer.
+    const prompt = `You are a **Principal Engineer** (ex-Stripe / Vercel level) giving a serious, no-BS code review to a peer senior developer.
 
 Project: ${repoFullName}
 
-Real code from the repo:
+Real code from the repository:
 
 ${codeContext}
 
-Deliver a **high-value, senior-level review** using these exact sections:
+Write a high-value, actionable review using these exact sections:
 
 **SUMMARY**
-What is this SaaS product actually doing? Be precise.
+One tight, accurate paragraph: What is this SaaS product? Who is it for? What is its core value proposition?
 
 **CODE QUALITY RATING**
-**Rating: X/10** — Justify it.
+**Rating: X/10**
+Be honest and justify it.
 
 **ARCHITECTURE**
-Strengths and weaknesses of the current structure (App Router, Supabase, etc.).
+Evaluate the overall structure, Next.js App Router usage, Supabase integration, and separation of concerns.
 
-**SECURITY REVIEW** (Most important section)
-- Rate risk: Low / Medium / High
-- Specifically analyze GitHub OAuth token flow and provider_token handling
-- OpenAI key management
-- Any client-side vs server-side risks
+**SECURITY REVIEW**
+- Overall risk level: Low / Medium / High
+- GitHub OAuth + provider_token flow (client → server)
+- OpenAI key handling and server-side safety
 - Auth protection on API routes
-- Other real risks or good practices you see in the code
+- Any real risks or strong practices you see in the code
+- Specific file references
 
 **PERFORMANCE & SCALABILITY**
-Honest assessment.
+Realistic production concerns.
 
-**MAINTAINABILITY**
-Code organization, TypeScript usage, etc.
+**MAINTAINABILITY & DEVELOPER EXPERIENCE**
+Code organization, TypeScript usage, error handling, onboarding, etc.
 
 **RECOMMENDED IMPROVEMENTS**
-Prioritized list of 6-8 concrete, high-impact changes.
+Prioritized list of 6–8 concrete, high-impact suggestions with clear business/value reasoning.
 
-Be specific. Reference actual files and code patterns.`;
+Be critical, specific, and reference actual files and patterns you see. No generic advice.`;
 
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",
