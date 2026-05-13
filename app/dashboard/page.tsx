@@ -86,7 +86,10 @@ export default function Dashboard() {
 
       const response = await fetch('/api/analyze', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.provider_token}`   // Fixed token passing
+        },
         body: JSON.stringify({ 
           repoFullName: repo.full_name, 
           repoName: repo.name 
@@ -235,9 +238,8 @@ export default function Dashboard() {
             </Card>
           </div>
 
-          {/* Analysis Area - Keep your existing code here */}
+          {/* Analysis Area */}
           <div className="lg:col-span-7 space-y-8">
-            {/* Paste your existing rating card and detailed analysis card here */}
             {results && ratingScore !== null && (
               <Card className="bg-zinc-900/70 border border-violet-500/30 backdrop-blur">
                 <CardHeader>
@@ -261,7 +263,65 @@ export default function Dashboard() {
               </Card>
             )}
 
-            {/* Your existing Detailed Analysis Card goes here */}
+            {/* Paste your existing Detailed Analysis Card here */}
+            <Card className="bg-zinc-900/70 border border-zinc-700 backdrop-blur min-h-[600px] flex flex-col">
+              <CardHeader className="border-b border-zinc-700 flex flex-row items-center justify-between">
+                <CardTitle className="text-2xl text-white flex items-center gap-3">
+                  <FileText className="w-6 h-6" />
+                  Detailed Analysis
+                </CardTitle>
+                {results && (
+                  <Button onClick={copyAll} variant="outline" size="sm" className="gap-2">
+                    <Copy className="w-4 h-4" />
+                    Copy All
+                  </Button>
+                )}
+              </CardHeader>
+
+              <div className="flex flex-1 overflow-hidden">
+                <div className="w-64 border-r border-zinc-700 p-4 bg-zinc-900/50 overflow-auto">
+                  <div className="text-sm font-medium text-zinc-400 mb-3 px-3">SECTIONS</div>
+                  {parsedSections
+                    .filter(s => !s.title.toLowerCase().includes("rating"))
+                    .map((section, index) => (
+                      <button
+                        key={index}
+                        onClick={() => setActiveSectionId(section.id)}
+                        className={`w-full text-left px-4 py-3 rounded-xl mb-1 transition-all text-sm ${
+                          activeSectionId === section.id 
+                            ? 'bg-violet-600 text-white font-medium' 
+                            : 'hover:bg-zinc-800 text-zinc-300'
+                        }`}
+                      >
+                        {section.title}
+                      </button>
+                    ))}
+                </div>
+
+                <div className="flex-1 p-8 overflow-auto">
+                  {results && currentSection ? (
+                    <div>
+                      <h3 className="text-3xl font-semibold text-violet-400 mb-6">
+                        {currentSection.title}
+                      </h3>
+                      <div className="text-white text-[15.5px] leading-relaxed whitespace-pre-wrap">
+                        {currentSection.content}
+                      </div>
+                    </div>
+                  ) : results ? (
+                    <p className="text-zinc-400">Select a section from the left</p>
+                  ) : (
+                    <div className="text-center py-32 text-zinc-400">
+                      <div className="mx-auto w-20 h-20 bg-gradient-to-br from-violet-500/10 to-fuchsia-500/10 rounded-3xl flex items-center justify-center mb-6 border border-violet-500/20">
+                        <FileText className="w-10 h-10 text-violet-400" />
+                      </div>
+                      <p className="text-xl font-medium text-white">Ready when you are</p>
+                      <p className="mt-3">Pick a repo on the left and click Analyze</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </Card>
           </div>
         </div>
       </div>
