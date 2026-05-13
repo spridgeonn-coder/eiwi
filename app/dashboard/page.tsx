@@ -44,7 +44,7 @@ export default function Dashboard() {
       const { data: { session } } = await supabase.auth.getSession();
 
       if (!session?.provider_token) {
-        alert("GitHub connection expired. Please go to Profile and reconnect GitHub.");
+        alert("GitHub connection expired. Please go to Profile and reconnect.");
         setLoadingRepos(false);
         return;
       }
@@ -60,7 +60,7 @@ export default function Dashboard() {
         const data = await response.json();
         setRepos(data);
       } else {
-        alert("Failed to load repositories. Try reconnecting GitHub in Profile.");
+        alert("Failed to load repositories.");
       }
     } catch (error) {
       console.error(error);
@@ -75,18 +75,25 @@ export default function Dashboard() {
     setActiveSectionId("summary");
 
     try {
-      const { data: { session } } = await supabase.auth.getSession();
       const response = await fetch('/api/analyze', {
         method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ repoFullName: repo.full_name, repoName: repo.name })
       });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
       const data = await response.json();
-      setResults(data);
-    } catch (error) {
-      alert("Failed to analyze repo");
+      if (data.error) {
+        alert("Analysis failed: " + data.error);
+      } else {
+        setResults(data);
+      }
+    } catch (error: any) {
+      console.error("Analyze error:", error);
+      alert("Failed to analyze repo. Check console (F12) for details.");
     }
     setAnalyzingRepo(null);
   };
@@ -225,7 +232,7 @@ export default function Dashboard() {
             </Card>
           </div>
 
-          {/* AI Results Area */}
+          {/* AI Results */}
           <div className="lg:col-span-7 space-y-8">
             {results && ratingScore !== null && (
               <Card className="bg-zinc-900/70 border border-violet-500/30 backdrop-blur">
