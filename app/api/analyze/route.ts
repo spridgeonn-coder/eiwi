@@ -14,73 +14,92 @@ export async function POST(request: NextRequest) {
 
     if (!token) return NextResponse.json({ error: "GitHub token missing" }, { status: 401 });
 
-    // Fetch files
+    // Fetch root files
     const filesResponse = await fetch(`https://api.github.com/repos/${repoFullName}/contents`, {
       headers: { Authorization: `Bearer ${token}`, 'Accept': 'application/vnd.github.v3+json' }
     });
 
-    const files = await filesResponse.json();
+    let allFiles: any[] = await filesResponse.json();
 
-    // Get as many relevant files as possible
-    const keyFiles = files
+    // Also check app/ and lib/ folders if they exist
+    for (const dir of ['app', 'lib', 'components']) {
+      try {
+        const dirRes = await fetch(`https://api.github.com/repos/${repoFullName}/contents/${dir}`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        if (dirRes.ok) {
+          const dirFiles = await dirRes.json();
+          allFiles = [...allFiles, ...dirFiles];
+        }
+      } catch (e) {}
+    }
+
+    // Prioritize the most important files
+    const priorityFiles = allFiles
       .filter((f: any) => f.type === 'file')
-      .slice(0, 25);
+      .sort((a: any, b: any) => {
+        const score = (name: string) => {
+          if (name.includes('route.ts')) return 100;
+          if (name === 'README.md') return 90;
+          if (name.includes('supabase')) return 80;
+          if (name.includes('page.tsx')) return 70;
+          return 0;
+        };
+        return score(b.name) - score(a.name);
+      })
+      .slice(0, 22);
 
     let codeContext = '';
 
-    for (const file of keyFiles) {
+    for (const file of priorityFiles) {
       try {
         const contentRes = await fetch(file.download_url, {
           headers: { Authorization: `Bearer ${token}` }
         });
         if (contentRes.ok) {
           const content = await contentRes.text();
-          codeContext += `\n\n=== ${file.path} ===\n${content.substring(0, 6500)}\n`;
+          codeContext += `\n\n=== ${file.path} ===\n${content.substring(0, 7000)}\n`;
         }
       } catch (e) {}
     }
 
-    const prompt = `You are a **principal engineer** at a top-tier company doing a serious code review for a fellow senior developer.
+    const prompt = `You are a principal engineer reviewing production code for a peer senior developer.
 
 Project: ${repoFullName}
 
-Here is the actual code from the repository:
+Real code from the repo:
 
 ${codeContext}
 
-Write a high-signal, no-fluff review targeted at mid-to-senior engineers. Use these exact sections:
+Deliver a **high-value, senior-level review** using these exact sections:
 
 **SUMMARY**
-One paragraph: What is this project actually building? What problem does it solve?
+What is this SaaS product actually doing? Be precise.
 
 **CODE QUALITY RATING**
-**Rating: X/10**
-Be direct. Justify the score with specific observations from the code.
+**Rating: X/10** — Justify it.
 
-**ARCHITECTURE & DESIGN**
-Evaluate folder structure, separation of concerns, use of Next.js App Router, Supabase integration, etc.
+**ARCHITECTURE**
+Strengths and weaknesses of the current structure (App Router, Supabase, etc.).
 
-**SECURITY REVIEW**
-Rate risk: Low / Medium / High
-- How are GitHub OAuth tokens handled?
-- Are API keys (OpenAI, etc.) properly isolated server-side?
-- Any auth bypass risks, token leakage, or missing validation?
-- Rate limiting / abuse prevention?
-- Specific strengths and weaknesses in this codebase.
+**SECURITY REVIEW** (Most important section)
+- Rate risk: Low / Medium / High
+- Specifically analyze GitHub OAuth token flow and provider_token handling
+- OpenAI key management
+- Any client-side vs server-side risks
+- Auth protection on API routes
+- Other real risks or good practices you see in the code
 
 **PERFORMANCE & SCALABILITY**
-Realistic concerns for production use.
+Honest assessment.
 
-**BEST PRACTICES & MAINTAINABILITY**
-Code style, TypeScript usage, error handling, testing strategy, etc.
-
-**MISSING TESTS**
-What should be tested? Give 3-5 concrete test examples.
+**MAINTAINABILITY**
+Code organization, TypeScript usage, etc.
 
 **RECOMMENDED IMPROVEMENTS**
-Prioritized list of 5-8 actionable changes with clear value.
+Prioritized list of 6-8 concrete, high-impact changes.
 
-Be critical, specific, and reference actual files/patterns you see.`;
+Be specific. Reference actual files and code patterns.`;
 
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",
