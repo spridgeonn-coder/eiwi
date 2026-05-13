@@ -9,18 +9,15 @@ export async function POST(request: NextRequest) {
   try {
     const { repoFullName, repoName } = await request.json();
 
-    console.log("Analyzing repo:", repoFullName);
-
-    // Get token
+    // Get GitHub token
     const authHeader = request.headers.get('authorization');
     const token = authHeader?.replace('Bearer ', '');
 
     if (!token) {
-      console.error("No GitHub token provided");
       return NextResponse.json({ error: "GitHub token missing" }, { status: 401 });
     }
 
-    // Fetch files
+    // Fetch repo files
     const filesResponse = await fetch(`https://api.github.com/repos/${repoFullName}/contents`, {
       headers: {
         Authorization: `Bearer ${token}`,
@@ -29,17 +26,75 @@ export async function POST(request: NextRequest) {
     });
 
     if (!filesResponse.ok) {
-      console.error("GitHub API error:", filesResponse.status);
-      return NextResponse.json({ error: "Failed to fetch repo files" }, { status: filesResponse.status });
+      return NextResponse.json({ error: "Could not access repository files" }, { status: filesResponse.status });
     }
 
     const files = await filesResponse.json();
-    console.log(`Found ${files.length} files`);
+
+    // Get important code files
+    const importantFiles = files
+      .filter((f: any) => f.type === 'file' && 
+        /\.(js|ts|jsx|tsx|py|java|go|rs|cs|php|rb|swift)$/.test(f.name))
+      .slice(0, 12);
+
+    let codeContext = '';
+
+    for (const file of importantFiles) {
+      try {
+        const contentRes = await fetch(file.download_url, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        if (contentRes.ok) {
+          const content = await contentRes.text();
+          codeContext += `\n\n--- ${file.path} ---\n${content.substring(0, 6000)}\n`;
+        }
+      } catch (e) {}
+    }
+
+    const prompt = `You are a senior software engineer doing a deep code review.
+
+Repository: ${repoFullName}
+
+Here is real code from the repository:
+
+${codeContext || "No code files found."}
+
+Give a professional, detailed analysis using these exact sections:
+
+**SUMMARY**
+What this project is and its main purpose.
+
+**CODE QUALITY RATING**
+**Rating: X/10**
+Honest score with reasons.
+
+**SECURITY REVIEW**
+Any real security issues or good practices.
+
+**PERFORMANCE REVIEW**
+Performance observations.
+
+**BEST PRACTICES & STYLE**
+Code style and architecture feedback.
+
+**MISSING TESTS**
+Gaps and example tests.
+
+**IMPROVEMENTS**
+Concrete suggestions with code examples.
+
+Be specific and mention file names.`;
+
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0.6,
+    });
 
     return NextResponse.json({
       success: true,
       repo: repoName,
-      analysis: "✅ Deep analysis connected successfully!\n\nThe system is now fetching real file contents. Test results should improve on the next analysis."
+      analysis: completion.choices[0]?.message?.content || "No response from AI"
     });
 
   } catch (error: any) {
