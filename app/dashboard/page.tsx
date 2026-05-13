@@ -44,7 +44,7 @@ export default function Dashboard() {
       const { data: { session } } = await supabase.auth.getSession();
 
       if (!session?.provider_token) {
-        alert("GitHub connection expired. Please go to Profile and reconnect.");
+        alert("GitHub connection expired. Please go to Profile and reconnect GitHub.");
         setLoadingRepos(false);
         return;
       }
@@ -60,7 +60,7 @@ export default function Dashboard() {
         const data = await response.json();
         setRepos(data);
       } else {
-        alert("Failed to load repositories.");
+        alert("Failed to load repositories. Try reconnecting GitHub in Profile.");
       }
     } catch (error) {
       console.error(error);
@@ -81,16 +81,13 @@ export default function Dashboard() {
         body: JSON.stringify({ repoFullName: repo.full_name, repoName: repo.name })
       });
 
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
+      const data = await response.json();
+
+      if (!response.ok || data.error) {
+        throw new Error(data.error || "Analysis failed");
       }
 
-      const data = await response.json();
-      if (data.error) {
-        alert("Analysis failed: " + data.error);
-      } else {
-        setResults(data);
-      }
+      setResults(data);
     } catch (error: any) {
       console.error("Analyze error:", error);
       alert("Failed to analyze repo. Check console (F12) for details.");
