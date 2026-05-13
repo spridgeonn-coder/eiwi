@@ -1,17 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
+import OpenAI from 'openai';
 import Anthropic from '@anthropic-ai/sdk';
 import { createServerClient } from '@supabase/ssr';
 
-// Simple in-memory rate limiting (per user, per minute)
-const rateLimit = new Map<string, { count: number; resetTime: number }>();
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY,
-});
+// Simple rate limiting (per user, per minute)
+const rateLimit = new Map<string, { count: number; resetTime: number }>();
 
 export async function POST(request: NextRequest) {
   try {
-    // ====================== SERVER-SIDE AUTH CHECK ======================
+    // Server-side auth
     const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -24,30 +24,28 @@ export async function POST(request: NextRequest) {
     );
 
     const { data: { user } } = await supabase.auth.getUser();
-
     if (!user) {
       return NextResponse.json({ error: "Unauthorized - Please log in" }, { status: 401 });
     }
 
-    // ====================== RATE LIMITING ======================
+    // Rate limiting
     const userId = user.id;
     const now = Date.now();
     let record = rateLimit.get(userId) || { count: 0, resetTime: now + 60000 };
 
     if (now > record.resetTime) {
       record.count = 0;
-      record.resetTime = now + 60000; // 1 minute window
+      record.resetTime = now + 60000;
     }
 
-    if (record.count >= 8) { // Max 8 analyzes per minute per user
+    if (record.count >= 10) {
       return NextResponse.json({ error: "Rate limit exceeded. Try again in a minute." }, { status: 429 });
     }
 
     record.count += 1;
     rateLimit.set(userId, record);
 
-    // ====================== NORMAL ANALYSIS ======================
-    const { repoFullName, repoName } = await request.json();
+    const { repoFullName, repoName, mode = 'normal' } = await request.json();
 
     const authHeader = request.headers.get('authorization');
     const token = authHeader?.replace('Bearer ', '');
@@ -104,57 +102,56 @@ export async function POST(request: NextRequest) {
       } catch (e) {}
     }
 
-    const message = await anthropic.messages.create({
-      model: "claude-sonnet-4-6",
-      max_tokens: 4000,
-      temperature: 0.5,
-      messages: [{
-        role: "user",
-        content: `You are a Principal Engineer reviewing code written by a strong senior developer.
+    let analysisText = '';
+
+    if (mode === '10star') {
+      // Claude for deep 10-star analysis
+      const message = await anthropic.messages.create({
+        model: "claude-sonnet-4-6",
+        max_tokens: 4000,
+        temperature: 0.5,
+        messages: [{
+          role: "user",
+          content: `You are a Principal Engineer... [your best 10-star prompt here]`
+        }]
+      });
+      analysisText = message.content[0].type === 'text' ? message.content[0].text : "No response";
+    } else {
+      // GPT-4o-mini for normal fast analysis
+      const completion = await openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages: [{
+          role: "user",
+          content: `You are a senior engineer reviewing this repo. Be specific and useful.
 
 Project: ${repoFullName}
 
-REAL CODE FROM THE REPOSITORY:
+REAL CODE:
 
 ${codeContext}
 
-Be sharp, specific, and high-signal. Reference exact files and functions. When suggesting changes, give tailored code improvements.
-
-Use these exact sections:
-
 **SUMMARY**
-One tight paragraph: What is this product?
+One tight paragraph.
 
 **CODE QUALITY RATING**
 **Rating: X/10**
 
-**ARCHITECTURE**
-Honest assessment.
-
 **SECURITY REVIEW**
-- Risk level: Low / Medium / High
-- GitHub OAuth + provider_token flow
-- OpenAI key handling
-- API route protection
-- Real risks in this codebase
-
-**MAINTAINABILITY & DX**
-Honest feedback.
+Risk level and real issues.
 
 **RECOMMENDED IMPROVEMENTS**
-Prioritized list of 6–8 concrete, high-impact changes. For each one:
-- Reference the specific file/function
-- Explain why it matters
-- Give the exact suggested code improvement
-
-Be sharp and valuable.`
-      }]
-    });
+Prioritized list with exact code suggestions where possible.`
+        }],
+        temperature: 0.5,
+      });
+      analysisText = completion.choices[0]?.message?.content || "No response";
+    }
 
     return NextResponse.json({
       success: true,
       repo: repoName,
-      analysis: message.content[0].type === 'text' ? message.content[0].text : "No response"
+      analysis: analysisText,
+      mode
     });
 
   } catch (error: any) {
