@@ -14,8 +14,8 @@ export async function POST(request: NextRequest) {
 
     if (!token) return NextResponse.json({ error: "GitHub token missing" }, { status: 401 });
 
-    // Aggressive file fetching from key directories
-    const directories = ['', 'app', 'lib', 'components', 'app/api', 'app/dashboard', 'app/profile'];
+    // Maximum file coverage
+    const directories = ['', 'app', 'lib', 'components', 'app/api', 'app/dashboard', 'app/profile', 'app/login'];
     let allFiles: any[] = [];
 
     for (const dir of directories) {
@@ -34,22 +34,22 @@ export async function POST(request: NextRequest) {
       } catch (e) {}
     }
 
-    // Super prioritize critical files
+    // Ultra-prioritize the most important files
     const priorityFiles = allFiles
       .filter((f: any) => f.type === 'file')
       .sort((a: any, b: any) => {
         const score = (name: string) => {
-          if (name.includes('route.ts')) return 200;
-          if (name.includes('supabase')) return 180;
-          if (name.includes('dashboard/page')) return 160;
-          if (name === 'README.md') return 140;
-          if (name.includes('analyze')) return 130;
-          if (name.includes('page.tsx')) return 100;
+          if (name.includes('route.ts')) return 300;
+          if (name.includes('supabase')) return 250;
+          if (name.includes('dashboard/page')) return 220;
+          if (name.includes('analyze')) return 210;
+          if (name === 'README.md') return 180;
+          if (name.includes('page.tsx')) return 150;
           return 50;
         };
         return score(b.name) - score(a.name);
       })
-      .slice(0, 30);
+      .slice(0, 35);
 
     let codeContext = '';
 
@@ -60,50 +60,50 @@ export async function POST(request: NextRequest) {
         });
         if (contentRes.ok) {
           const content = await contentRes.text();
-          codeContext += `\n\n=== ${file.path} ===\n${content.substring(0, 7200)}\n`;
+          codeContext += `\n\n=== ${file.path} ===\n${content.substring(0, 8000)}\n`;
         }
       } catch (e) {}
     }
 
-    const prompt = `You are a **Principal Engineer** at a top company (ex-Vercel, Stripe, or OpenAI) doing a no-BS, high-signal code review for a strong senior developer.
+    const prompt = `You are a **Principal Engineer** (ex-Vercel, ex-Stripe, ex-OpenAI) giving a ruthless, high-signal code review to a peer senior developer who expects excellence.
 
 Project: ${repoFullName}
 
-Here is **real code** from the repository:
+REAL CODE FROM THE REPOSITORY:
 
 ${codeContext}
 
-**Rules:**
-- Be extremely specific. Reference actual files and code patterns.
-- Never give generic advice like "use env vars" or "add middleware" unless you tie it directly to something you see in this codebase.
-- Be critical where warranted.
+**Strict Instructions:**
+- Reference actual files, functions, and code patterns by name.
+- Never give generic advice. Every point must tie back to something in this codebase.
+- Be critical and direct.
 
 Use these exact sections:
 
 **SUMMARY**
-One sharp paragraph: What is this product? Who is it for? Core value?
+One precise paragraph: What is this product? Who is it for? Core value?
 
 **CODE QUALITY RATING**
-**Rating: X/10** — Justify with specifics.
+**Rating: X/10** — Justify honestly with evidence.
 
 **ARCHITECTURE**
-Honest evaluation of Next.js + Supabase + AI setup.
+Honest assessment of the Next.js + Supabase + AI setup.
 
 **SECURITY REVIEW**
 - Overall risk: Low / Medium / High
-- Deep analysis of GitHub OAuth + provider_token flow (client → server)
-- OpenAI key handling
-- API route protection (or lack thereof)
-- Any real risks or clever practices you see
-- Specific file references
+- Detailed analysis of GitHub OAuth + provider_token flow (client → server)
+- OpenAI key handling and server-side isolation
+- API route protection (especially /api/analyze)
+- Any actual risks, leaks, or strong practices you observe
+- Specific file and function references
 
-**MAINTAINABILITY & DX**
-Code organization, TypeScript usage, error handling, developer experience.
+**MAINTAINABILITY & DEVELOPER EXPERIENCE**
+Code organization, TypeScript quality, error handling, onboarding.
 
 **RECOMMENDED IMPROVEMENTS**
-Prioritized list of 6–8 concrete, high-leverage changes with clear reasoning.
+Prioritized list of 6–8 concrete, high-impact changes with clear reasoning and business value.
 
-Stay ruthless and specific. No fluff.`;
+Be specific, sharp, and valuable. No fluff. No generic security checklist items.`;
 
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",
