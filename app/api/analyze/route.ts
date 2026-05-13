@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import OpenAI from 'openai';
+import Anthropic from '@anthropic-ai/sdk';
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
+const anthropic = new Anthropic({
+  apiKey: process.env.ANTHROPIC_API_KEY,
 });
 
 export async function POST(request: NextRequest) {
@@ -14,7 +14,8 @@ export async function POST(request: NextRequest) {
 
     if (!token) return NextResponse.json({ error: "GitHub token missing" }, { status: 401 });
 
-    const directories = ['', 'app', 'lib', 'components', 'app/api', 'app/dashboard', 'app/profile', 'app/login'];
+    // Fetch important files
+    const directories = ['', 'app', 'lib', 'components', 'app/api', 'app/dashboard', 'app/profile'];
     let allFiles: any[] = [];
 
     for (const dir of directories) {
@@ -47,7 +48,7 @@ export async function POST(request: NextRequest) {
         };
         return score(b.name) - score(a.name);
       })
-      .slice(0, 50);
+      .slice(0, 45);
 
     let codeContext = '';
 
@@ -63,7 +64,13 @@ export async function POST(request: NextRequest) {
       } catch (e) {}
     }
 
-    const prompt = `You are a Principal Engineer at a top company reviewing code written by a strong senior developer. Speak directly to them as a respected peer who expects excellence and hates generic advice.
+    const message = await anthropic.messages.create({
+      model: "claude-3-5-sonnet-20240620",   // or claude-3-opus-20240229 if you have access
+      max_tokens: 4000,
+      temperature: 0.5,
+      messages: [{
+        role: "user",
+        content: `You are a Principal Engineer reviewing code written by a strong senior developer.
 
 Project: ${repoFullName}
 
@@ -71,52 +78,43 @@ REAL CODE FROM THE REPOSITORY:
 
 ${codeContext}
 
-**Strict Rules (you must follow all of them):**
-- Be direct, sharp, and high-signal.
-- Always reference exact files and functions by name.
-- Every recommendation must be tailored to the actual code in this project.
-- When suggesting a change, show the **exact improved code** based on what is currently there.
-- Focus on high-impact issues that matter to experienced developers.
+Speak directly to them as a peer. Be sharp, specific, and high-signal. Reference exact files and functions. When suggesting changes, give tailored code improvements.
 
 Use these exact sections:
 
 **SUMMARY**
-One tight paragraph: What is this product actually building?
+One tight paragraph: What is this product?
 
 **CODE QUALITY RATING**
-**Rating: X/10** — Be honest with specific reasons.
+**Rating: X/10**
 
 **ARCHITECTURE**
-Honest assessment of the current design and trade-offs.
+Honest assessment.
 
 **SECURITY REVIEW**
 - Risk level: Low / Medium / High
 - GitHub OAuth + provider_token flow
 - OpenAI key handling
 - API route protection
-- Real risks or strong patterns in this codebase
+- Real risks in this codebase
 
 **MAINTAINABILITY & DX**
-Honest feedback on organization and developer experience.
+Honest feedback.
 
 **RECOMMENDED IMPROVEMENTS**
 Prioritized list of 6–8 concrete, high-impact changes. For each one:
-- Reference the specific file and function
-- Explain why it matters in this project
-- Give the exact suggested code improvement tailored to the current implementation
+- Reference the specific file/function
+- Explain why it matters
+- Give the exact suggested code improvement
 
-Be sharp, specific, and extremely valuable. No generic advice.`;
-
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [{ role: "user", content: prompt }],
-      temperature: 0.5,
+Be sharp and valuable.`
+      }]
     });
 
     return NextResponse.json({
       success: true,
       repo: repoName,
-      analysis: completion.choices[0]?.message?.content || "No response"
+      analysis: message.content[0].type === 'text' ? message.content[0].text : "No response"
     });
 
   } catch (error: any) {
