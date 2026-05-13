@@ -1,11 +1,20 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { Button } from "@/components/ui/button";
 import { ArrowLeft } from "lucide-react";
 
 export default function Login() {
+  useEffect(() => {
+    // Check if user is already logged in
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session) {
+        window.location.href = '/dashboard';
+      }
+    });
+  }, []);
+
   const handleGitHubLogin = async () => {
     await supabase.auth.signInWithOAuth({
       provider: 'github',
