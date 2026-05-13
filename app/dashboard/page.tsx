@@ -60,7 +60,7 @@ export default function Dashboard() {
         const data = await response.json();
         setRepos(data);
       } else {
-        alert("Failed to load repositories. Try reconnecting GitHub in Profile.");
+        alert("Failed to load repositories.");
       }
     } catch (error) {
       console.error(error);
@@ -75,9 +75,19 @@ export default function Dashboard() {
     setActiveSectionId("summary");
 
     try {
+      const { data: { session } } = await supabase.auth.getSession();
+
+      if (!session?.provider_token) {
+        alert("GitHub token missing. Please reconnect in Profile.");
+        return;
+      }
+
       const response = await fetch('/api/analyze', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.provider_token}`   // ← This was missing
+        },
         body: JSON.stringify({ repoFullName: repo.full_name, repoName: repo.name })
       });
 
@@ -90,10 +100,12 @@ export default function Dashboard() {
       setResults(data);
     } catch (error: any) {
       console.error("Analyze error:", error);
-      alert("Failed to analyze repo. Check console (F12) for details.");
+      alert("Failed to analyze repo: " + error.message);
     }
     setAnalyzingRepo(null);
   };
+
+  // ... (keep the rest of the file the same - parseSections, extractRating, etc.)
 
   const parseSections = (text: string) => {
     const sections: { title: string; content: string; id: string }[] = [];
@@ -157,6 +169,7 @@ export default function Dashboard() {
 
   return (
     <div className="min-h-screen bg-zinc-950 text-white">
+      {/* Navbar and rest of UI stays the same */}
       <nav className="border-b border-zinc-800 bg-zinc-900/80 backdrop-blur-md sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-8 py-5 flex items-center justify-between">
           <div className="flex items-center gap-4">
@@ -195,7 +208,6 @@ export default function Dashboard() {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-          {/* Repositories */}
           <div className="lg:col-span-5">
             <Card className="bg-zinc-900/70 border border-zinc-700 backdrop-blur overflow-hidden h-fit">
               <CardHeader className="border-b border-zinc-700 pb-4">
@@ -229,7 +241,6 @@ export default function Dashboard() {
             </Card>
           </div>
 
-          {/* AI Results */}
           <div className="lg:col-span-7 space-y-8">
             {results && ratingScore !== null && (
               <Card className="bg-zinc-900/70 border border-violet-500/30 backdrop-blur">
