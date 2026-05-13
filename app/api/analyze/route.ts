@@ -21,10 +21,10 @@ export async function POST(request: NextRequest) {
 
     const files = await filesResponse.json();
 
-    // Get key files
+    // Get as many relevant files as possible
     const keyFiles = files
       .filter((f: any) => f.type === 'file')
-      .slice(0, 20);
+      .slice(0, 25);
 
     let codeContext = '';
 
@@ -35,12 +35,12 @@ export async function POST(request: NextRequest) {
         });
         if (contentRes.ok) {
           const content = await contentRes.text();
-          codeContext += `\n\n=== ${file.path} ===\n${content.substring(0, 7000)}\n`;
+          codeContext += `\n\n=== ${file.path} ===\n${content.substring(0, 6500)}\n`;
         }
       } catch (e) {}
     }
 
-    const prompt = `You are a senior security engineer reviewing a real SaaS application.
+    const prompt = `You are a **principal engineer** at a top-tier company doing a serious code review for a fellow senior developer.
 
 Project: ${repoFullName}
 
@@ -48,35 +48,39 @@ Here is the actual code from the repository:
 
 ${codeContext}
 
-Perform a **detailed, specific security review** using these exact sections:
+Write a high-signal, no-fluff review targeted at mid-to-senior engineers. Use these exact sections:
 
 **SUMMARY**
-Briefly describe what this project is.
+One paragraph: What is this project actually building? What problem does it solve?
 
 **CODE QUALITY RATING**
 **Rating: X/10**
+Be direct. Justify the score with specific observations from the code.
 
-**SECURITY REVIEW** (This section is critical)
-- Rate overall security risk: Low / Medium / High
-- Specifically analyze how authentication works (Supabase + GitHub OAuth)
-- Check how API keys and tokens (OpenAI, GitHub provider_token) are handled
-- Look for any sensitive data exposure risks
-- Mention specific files and code patterns (e.g. route.ts, supabase client, token passing)
-- Point out real strengths and weaknesses in this codebase
+**ARCHITECTURE & DESIGN**
+Evaluate folder structure, separation of concerns, use of Next.js App Router, Supabase integration, etc.
 
-**PERFORMANCE REVIEW**
-Any notable observations.
+**SECURITY REVIEW**
+Rate risk: Low / Medium / High
+- How are GitHub OAuth tokens handled?
+- Are API keys (OpenAI, etc.) properly isolated server-side?
+- Any auth bypass risks, token leakage, or missing validation?
+- Rate limiting / abuse prevention?
+- Specific strengths and weaknesses in this codebase.
 
-**BEST PRACTICES & STYLE**
-Honest feedback.
+**PERFORMANCE & SCALABILITY**
+Realistic concerns for production use.
+
+**BEST PRACTICES & MAINTAINABILITY**
+Code style, TypeScript usage, error handling, testing strategy, etc.
 
 **MISSING TESTS**
-Gaps and examples.
+What should be tested? Give 3-5 concrete test examples.
 
-**IMPROVEMENTS**
-5-7 concrete, actionable suggestions.
+**RECOMMENDED IMPROVEMENTS**
+Prioritized list of 5-8 actionable changes with clear value.
 
-Be critical and reference actual files and code you see.`;
+Be critical, specific, and reference actual files/patterns you see.`;
 
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",
