@@ -14,7 +14,7 @@ export async function POST(request: NextRequest) {
 
     if (!token) return NextResponse.json({ error: "GitHub token missing" }, { status: 401 });
 
-    const directories = ['', 'app', 'lib', 'components', 'app/api', 'app/dashboard', 'app/profile'];
+    const directories = ['', 'app', 'lib', 'components', 'app/api', 'app/dashboard', 'app/profile', 'app/login'];
     let allFiles: any[] = [];
 
     for (const dir of directories) {
@@ -37,17 +37,17 @@ export async function POST(request: NextRequest) {
       .filter((f: any) => f.type === 'file')
       .sort((a: any, b: any) => {
         const score = (name: string) => {
-          if (name.includes('route.ts')) return 300;
-          if (name.includes('supabase')) return 250;
-          if (name.includes('dashboard/page')) return 220;
-          if (name.includes('analyze')) return 210;
-          if (name === 'README.md') return 180;
-          if (name.includes('page.tsx')) return 150;
+          if (name.includes('route.ts')) return 400;
+          if (name.includes('supabase')) return 350;
+          if (name.includes('dashboard/page')) return 300;
+          if (name.includes('analyze')) return 280;
+          if (name === 'README.md') return 220;
+          if (name.includes('page.tsx')) return 180;
           return 50;
         };
         return score(b.name) - score(a.name);
       })
-      .slice(0, 35);
+      .slice(0, 40);
 
     let codeContext = '';
 
@@ -58,12 +58,12 @@ export async function POST(request: NextRequest) {
         });
         if (contentRes.ok) {
           const content = await contentRes.text();
-          codeContext += `\n\n=== ${file.path} ===\n${content.substring(0, 8500)}\n`;
+          codeContext += `\n\n=== ${file.path} ===\n${content.substring(0, 9500)}\n`;
         }
       } catch (e) {}
     }
 
-    const prompt = `You are a Principal Engineer reviewing code written by a strong mid-to-senior developer. Speak directly to them as a peer.
+    const prompt = `You are a **Principal Engineer** (ex-Vercel / Stripe level) giving a no-BS, high-signal review to a strong senior developer who built this project.
 
 Project: ${repoFullName}
 
@@ -71,40 +71,40 @@ REAL CODE FROM THE REPOSITORY:
 
 ${codeContext}
 
-**Core Rules:**
-- Be direct, specific, and critical when needed.
-- Always reference exact files and functions by name.
-- When you recommend a change, show the exact code improvement (with before/after style if helpful).
-- Never give generic best-practice advice. Tie everything to the actual code you see.
+**Core Rules (non-negotiable):**
+- Speak like a respected peer: direct, sharp, constructive.
+- Always reference exact files and functions.
+- When you recommend a fix, show the **exact improved code** (with context).
+- Focus on high-impact issues that actually matter in production.
 
 Use these exact sections:
 
 **SUMMARY**
-One tight paragraph: What is this product actually building?
+One tight paragraph: What is this product actually building and who is it for?
 
 **CODE QUALITY RATING**
-**Rating: X/10** — Be honest with specific reasons.
+**Rating: X/10** — Be honest and specific.
 
 **ARCHITECTURE**
-Straight talk about the current design decisions.
+Straight talk about the current Next.js + Supabase + client-heavy design. Point out real strengths and problems.
 
 **SECURITY REVIEW**
 - Risk level: Low / Medium / High
-- GitHub OAuth + provider_token flow
+- GitHub OAuth + provider_token flow (client → server)
 - OpenAI key handling
 - API route protection
-- Real risks or strong patterns in this codebase
+- Any real risks or strong patterns you see
 
 **MAINTAINABILITY & DX**
-Honest feedback on organization and developer experience.
+Honest feedback on organization, state management, and developer experience.
 
 **RECOMMENDED IMPROVEMENTS**
-Prioritized list of 6–8 concrete changes. For each one:
+Prioritized list of 6–8 concrete, high-impact changes. For each one:
 - Reference the specific file/function
 - Explain why it matters
-- Give an exact code suggestion for the fix
+- Give the exact code suggestion / improved version
 
-Be sharp, specific, and high-value.`;
+Be sharp, specific, and valuable. No generic advice.`;
 
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",
