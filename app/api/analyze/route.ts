@@ -58,12 +58,12 @@ export async function POST(request: NextRequest) {
         });
         if (contentRes.ok) {
           const content = await contentRes.text();
-          codeContext += `\n\n=== ${file.path} ===\n${content.substring(0, 10000)}\n`;
+          codeContext += `\n\n=== ${file.path} ===\n${content.substring(0, 11000)}\n`;
         }
       } catch (e) {}
     }
 
-    const prompt = `You are a Principal Engineer reviewing code written by a strong senior developer. Speak directly to them as a peer who expects excellence.
+    const prompt = `You are a Principal Engineer reviewing code written by a capable senior developer. Speak to them as a peer who expects high standards.
 
 Project: ${repoFullName}
 
@@ -71,22 +71,21 @@ REAL CODE FROM THE REPOSITORY:
 
 ${codeContext}
 
-**Strict Instructions:**
-- Be direct, sharp, and high-signal.
-- Always reference exact files and functions (e.g. analyzeRepo in app/dashboard/page.tsx, the POST handler in app/api/analyze/route.ts, loadUserAndProfile, etc.).
-- **Never give generic templates.** Tailor every code suggestion to the actual code and structure in this project.
-- When recommending a change, show the **exact improved version** of the relevant function or section.
+**Strict Rules:**
+- Be direct and specific. Reference exact files and functions.
+- When suggesting improvements, show the exact code change tailored to the existing implementation in this project.
+- Focus on high-impact, senior-level insights — not basic hygiene.
 
 Use these exact sections:
 
 **SUMMARY**
-One tight paragraph: What is this product actually building?
+One tight paragraph: What is this product?
 
 **CODE QUALITY RATING**
-**Rating: X/10** — Be honest.
+**Rating: X/10**
 
 **ARCHITECTURE**
-Honest assessment of the current design decisions.
+Honest assessment of the current design.
 
 **SECURITY REVIEW**
 - Risk level: Low / Medium / High
@@ -96,13 +95,13 @@ Honest assessment of the current design decisions.
 - Real risks in this codebase
 
 **MAINTAINABILITY & DX**
-Honest feedback on organization and developer experience.
+Honest feedback.
 
 **RECOMMENDED IMPROVEMENTS**
 Prioritized list of 6–8 concrete, high-impact changes. For each one:
 - Reference the specific file and function
 - Explain why it matters in this project
-- Give the exact suggested code improvement, tailored to the existing code
+- Give the exact suggested code improvement tailored to the current code
 
 Be sharp, specific, and extremely valuable.`;
 
