@@ -37,17 +37,17 @@ export async function POST(request: NextRequest) {
       .filter((f: any) => f.type === 'file')
       .sort((a: any, b: any) => {
         const score = (name: string) => {
-          if (name.includes('route.ts')) return 400;
-          if (name.includes('supabase')) return 350;
-          if (name.includes('dashboard/page')) return 300;
-          if (name.includes('analyze')) return 280;
-          if (name === 'README.md') return 220;
-          if (name.includes('page.tsx')) return 180;
+          if (name.includes('route.ts')) return 500;
+          if (name.includes('supabase')) return 400;
+          if (name.includes('dashboard/page')) return 350;
+          if (name.includes('analyze')) return 320;
+          if (name === 'README.md') return 250;
+          if (name.includes('page.tsx')) return 200;
           return 50;
         };
         return score(b.name) - score(a.name);
       })
-      .slice(0, 40);
+      .slice(0, 45);
 
     let codeContext = '';
 
@@ -58,12 +58,12 @@ export async function POST(request: NextRequest) {
         });
         if (contentRes.ok) {
           const content = await contentRes.text();
-          codeContext += `\n\n=== ${file.path} ===\n${content.substring(0, 9500)}\n`;
+          codeContext += `\n\n=== ${file.path} ===\n${content.substring(0, 10000)}\n`;
         }
       } catch (e) {}
     }
 
-    const prompt = `You are a **Principal Engineer** (ex-Vercel / Stripe level) giving a no-BS, high-signal review to a strong senior developer who built this project.
+    const prompt = `You are a **Principal Engineer** (ex-Vercel, ex-Stripe, ex-OpenAI) giving a brutally honest, high-signal review to a strong senior developer.
 
 Project: ${repoFullName}
 
@@ -72,39 +72,39 @@ REAL CODE FROM THE REPOSITORY:
 ${codeContext}
 
 **Core Rules (non-negotiable):**
-- Speak like a respected peer: direct, sharp, constructive.
-- Always reference exact files and functions.
-- When you recommend a fix, show the **exact improved code** (with context).
-- Focus on high-impact issues that actually matter in production.
+- Speak like a respected peer: direct, sharp, no fluff, no generic advice.
+- Always reference exact files and functions (e.g. analyzeRepo in app/dashboard/page.tsx, the POST handler in app/api/analyze/route.ts, etc.).
+- When you recommend a change, show the **exact improved code** with context from the current implementation.
+- Focus only on high-impact issues that actually matter.
 
 Use these exact sections:
 
 **SUMMARY**
-One tight paragraph: What is this product actually building and who is it for?
+One tight paragraph: What is this product actually building?
 
 **CODE QUALITY RATING**
 **Rating: X/10** — Be honest and specific.
 
 **ARCHITECTURE**
-Straight talk about the current Next.js + Supabase + client-heavy design. Point out real strengths and problems.
+Straight talk about the current design and trade-offs.
 
 **SECURITY REVIEW**
 - Risk level: Low / Medium / High
 - GitHub OAuth + provider_token flow (client → server)
 - OpenAI key handling
 - API route protection
-- Any real risks or strong patterns you see
+- Real risks or strong patterns in this codebase
 
 **MAINTAINABILITY & DX**
 Honest feedback on organization, state management, and developer experience.
 
 **RECOMMENDED IMPROVEMENTS**
 Prioritized list of 6–8 concrete, high-impact changes. For each one:
-- Reference the specific file/function
+- Reference the specific file and function
 - Explain why it matters
 - Give the exact code suggestion / improved version
 
-Be sharp, specific, and valuable. No generic advice.`;
+Be sharp, specific, and extremely valuable.`;
 
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",
