@@ -88,7 +88,7 @@ export default function Dashboard() {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session.provider_token}`   // Fixed token passing
+          'Authorization': `Bearer ${session.provider_token}`
         },
         body: JSON.stringify({ 
           repoFullName: repo.full_name, 
@@ -238,7 +238,7 @@ export default function Dashboard() {
             </Card>
           </div>
 
-          {/* Analysis Area */}
+          {/* Analysis Area - Consolidated Sections */}
           <div className="lg:col-span-7 space-y-8">
             {results && ratingScore !== null && (
               <Card className="bg-zinc-900/70 border border-violet-500/30 backdrop-blur">
@@ -263,7 +263,6 @@ export default function Dashboard() {
               </Card>
             )}
 
-            {/* Paste your existing Detailed Analysis Card here */}
             <Card className="bg-zinc-900/70 border border-zinc-700 backdrop-blur min-h-[600px] flex flex-col">
               <CardHeader className="border-b border-zinc-700 flex flex-row items-center justify-between">
                 <CardTitle className="text-2xl text-white flex items-center gap-3">
@@ -279,6 +278,7 @@ export default function Dashboard() {
               </CardHeader>
 
               <div className="flex flex-1 overflow-hidden">
+                {/* Sidebar */}
                 <div className="w-64 border-r border-zinc-700 p-4 bg-zinc-900/50 overflow-auto">
                   <div className="text-sm font-medium text-zinc-400 mb-3 px-3">SECTIONS</div>
                   {parsedSections
@@ -298,9 +298,10 @@ export default function Dashboard() {
                     ))}
                 </div>
 
+                {/* Main Content - All sections in one clean view */}
                 <div className="flex-1 p-8 overflow-auto">
                   {results && currentSection ? (
-                    <div>
+                    <div className="prose prose-invert max-w-none">
                       <h3 className="text-3xl font-semibold text-violet-400 mb-6">
                         {currentSection.title}
                       </h3>
