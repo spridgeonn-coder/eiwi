@@ -14,8 +14,7 @@ export async function POST(request: NextRequest) {
 
     if (!token) return NextResponse.json({ error: "GitHub token missing" }, { status: 401 });
 
-    // Fetch important files
-    const directories = ['', 'app', 'lib', 'components', 'app/api', 'app/dashboard', 'app/profile'];
+    const directories = ['', 'app', 'lib', 'components', 'app/api', 'app/dashboard', 'app/profile', 'app/login'];
     let allFiles: any[] = [];
 
     for (const dir of directories) {
@@ -64,8 +63,8 @@ export async function POST(request: NextRequest) {
       } catch (e) {}
     }
 
-        const message = await anthropic.messages.create({
-      model: "claude-3-5-sonnet-latest",
+    const message = await anthropic.messages.create({
+      model: "claude-sonnet-4-6",           // Updated model name
       max_tokens: 4000,
       temperature: 0.5,
       messages: [{
