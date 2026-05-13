@@ -63,9 +63,7 @@ export async function POST(request: NextRequest) {
       } catch (e) {}
     }
 
-    const prompt = `You are a **Principal Engineer** speaking directly to a strong mid-to-senior developer who built this project.
-
-Your job is to give **extremely valuable, high-leverage feedback** — the kind you'd want to receive on your own code.
+    const prompt = `You are a Principal Engineer speaking directly to a strong mid-to-senior developer as a peer.
 
 Project: ${repoFullName}
 
@@ -73,10 +71,10 @@ REAL CODE FROM THE REPOSITORY:
 
 ${codeContext}
 
-**Rules:**
-- Be specific. Reference exact files and functions (e.g. `analyzeRepo` in `dashboard/page.tsx`, `POST` in `route.ts`, etc.).
-- When recommending changes, give concrete code snippets where helpful.
-- Assume the reader is experienced — focus on impactful improvements, not basic advice.
+Strict Instructions:
+- Talk like a senior peer: direct, practical, no fluff.
+- Always reference exact files and functions (e.g. analyzeRepo in app/dashboard/page.tsx, the POST handler in app/api/analyze/route.ts, etc.).
+- When you spot an issue, follow it immediately with a concrete code suggestion showing the improved version.
 
 Use these exact sections:
 
@@ -84,10 +82,10 @@ Use these exact sections:
 One tight paragraph: What is this product?
 
 **CODE QUALITY RATING**
-**Rating: X/10**
+**Rating: X/10** — Be honest.
 
 **ARCHITECTURE**
-Honest assessment of the current design. Is it modular? Scalable? Easy to understand? What are the strengths and weaknesses? When discussing all of these topics, be extremely specific and act like you are talking to a peer. Give live code expamles. Call out specific code issues etc. 
+Honest feedback on the current design.
 
 **SECURITY REVIEW**
 - Risk level: Low / Medium / High
@@ -100,12 +98,12 @@ Honest assessment of the current design. Is it modular? Scalable? Easy to unders
 Feedback on organization and developer experience.
 
 **RECOMMENDED IMPROVEMENTS**
-Prioritized list of 6–8 concrete, high-impact changes. For each, include:
-- Why it matters
-- Reference to specific code
-- Suggested implementation (with code snippet if useful)
+Prioritized list of 6–8 concrete changes. For each one:
+- Reference the specific code/file
+- Explain why it matters
+- Give an exact code example of the suggested fix
 
-Be sharp, specific, and valuable.`;
+Be sharp, specific, and high-value.`;
 
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",
