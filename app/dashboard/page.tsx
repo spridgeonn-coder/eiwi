@@ -238,7 +238,30 @@ export default function Dashboard() {
           {/* Analysis Area - Keep your existing code here */}
           <div className="lg:col-span-7 space-y-8">
             {/* Paste your existing rating card and detailed analysis card here */}
-            {/* (the big card with sections sidebar) */}
+            {results && ratingScore !== null && (
+              <Card className="bg-zinc-900/70 border border-violet-500/30 backdrop-blur">
+                <CardHeader>
+                  <CardTitle className="text-2xl text-white flex items-center gap-3">
+                    Code Quality Rating
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="p-8">
+                  <div className="flex items-center gap-6">
+                    <div className="text-7xl font-bold text-violet-400">{ratingScore}</div>
+                    <div>
+                      <div className="text-3xl text-zinc-500">/10</div>
+                      <div className="flex mt-2">
+                        {Array.from({ length: 10 }).map((_, i) => (
+                          <Star key={i} className={`w-8 h-8 ${i < ratingScore ? 'fill-yellow-400 text-yellow-400' : 'text-zinc-700'}`} />
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Your existing Detailed Analysis Card goes here */}
           </div>
         </div>
       </div>
