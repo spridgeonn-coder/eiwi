@@ -47,7 +47,7 @@ export async function POST(request: NextRequest) {
         };
         return score(b.name) - score(a.name);
       })
-      .slice(0, 45);
+      .slice(0, 50);
 
     let codeContext = '';
 
@@ -58,12 +58,12 @@ export async function POST(request: NextRequest) {
         });
         if (contentRes.ok) {
           const content = await contentRes.text();
-          codeContext += `\n\n=== ${file.path} ===\n${content.substring(0, 11000)}\n`;
+          codeContext += `\n\n=== ${file.path} ===\n${content.substring(0, 12000)}\n`;
         }
       } catch (e) {}
     }
 
-    const prompt = `You are a Principal Engineer reviewing code written by a strong senior developer. Speak directly to them as a peer.
+    const prompt = `You are a Principal Engineer at a top tech company reviewing code written by a strong senior developer. Speak directly to them as a respected peer.
 
 Project: ${repoFullName}
 
@@ -72,31 +72,31 @@ REAL CODE FROM THE REPOSITORY:
 ${codeContext}
 
 **Strict Rules:**
-- Be direct, specific, and high-signal.
-- Reference exact files and functions (e.g. analyzeRepo in app/dashboard/page.tsx, the POST in app/api/analyze/route.ts, loadUserAndProfile, etc.).
-- When recommending a change, show the **exact tailored code improvement** based on the current implementation.
-- Focus on high-impact issues that matter to experienced developers.
+- Be direct, sharp, and high-signal. Assume the reader is experienced.
+- Always reference exact files and functions (e.g. analyzeRepo in app/dashboard/page.tsx, the POST handler in app/api/analyze/route.ts, loadUserAndProfile, etc.).
+- When recommending a change, show the **exact tailored code improvement** based on the current implementation in this project.
+- Focus only on high-impact issues. No generic best practices.
 
 Use these exact sections:
 
 **SUMMARY**
-One tight paragraph: What is this product?
+One tight paragraph: What is this product actually building and its core value?
 
 **CODE QUALITY RATING**
-**Rating: X/10**
+**Rating: X/10** — Be honest with specific reasons.
 
 **ARCHITECTURE**
-Honest assessment of the current design.
+Honest assessment of the current Next.js + Supabase + client-heavy design.
 
 **SECURITY REVIEW**
 - Risk level: Low / Medium / High
-- GitHub OAuth + provider_token flow
+- GitHub OAuth + provider_token flow (client → server)
 - OpenAI key handling
 - API route protection
-- Real risks in this codebase
+- Real risks or strong patterns in this codebase
 
 **MAINTAINABILITY & DX**
-Honest feedback.
+Honest feedback on organization, state management, error handling, and developer experience.
 
 **RECOMMENDED IMPROVEMENTS**
 Prioritized list of 6–8 concrete, high-impact changes. For each one:
@@ -104,7 +104,7 @@ Prioritized list of 6–8 concrete, high-impact changes. For each one:
 - Explain why it matters in this project
 - Give the exact suggested code improvement tailored to the current code
 
-Be sharp and valuable.`;
+Be sharp, specific, and extremely valuable.`;
 
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",
