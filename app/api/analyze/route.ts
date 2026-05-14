@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import OpenAI from 'openai';
 import { createServerClient } from '@supabase/ssr';
 
-export const maxDuration = 180;
+export const maxDuration = 200;
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -28,8 +28,8 @@ export async function POST(request: NextRequest) {
     }
     if (!token) return NextResponse.json({ error: "GitHub token missing" }, { status: 401 });
 
-    // Fetch files
-    const importantDirs = ['', 'app', 'lib', 'components', 'src', 'utils', 'hooks', 'api'];
+    // Improved file discovery
+    const importantDirs = ['', 'app', 'lib', 'components', 'src', 'utils', 'hooks', 'api', 'middleware'];
     let allFiles: any[] = [];
 
     for (const dir of importantDirs) {
@@ -48,8 +48,9 @@ export async function POST(request: NextRequest) {
 
     const priorityFiles = allFiles
       .filter((f: any) => f.type === 'file' && 
-        (f.name.endsWith('.tsx') || f.name.endsWith('.ts') || f.name.endsWith('.js') || f.name === 'README.md'))
-      .slice(0, 25);
+        (f.name.endsWith('.tsx') || f.name.endsWith('.ts') || f.name.endsWith('.js') || 
+         f.name === 'README.md' || f.name.includes('package.json')))
+      .slice(0, 28);
 
     let codeContext = '';
     for (const file of priorityFiles) {
@@ -57,7 +58,7 @@ export async function POST(request: NextRequest) {
         const res = await fetch(file.download_url, { headers: { Authorization: `Bearer ${token}` } });
         if (res.ok) {
           let content = await res.text();
-          if (content.length > 12000) content = content.slice(0, 12000) + "\n// ... truncated";
+          if (content.length > 11000) content = content.slice(0, 11000) + "\n// ... truncated";
           codeContext += `\n\n=== ${file.path} ===\n${content}\n`;
         }
       } catch (_) {}
@@ -65,84 +66,73 @@ export async function POST(request: NextRequest) {
 
     const completion = await openai.chat.completions.create({
       model: "gpt-4o",
-      temperature: 0.2,
-      max_tokens: 3200,
+      temperature: 0.15,
+      max_tokens: 3400,
       messages: [
         {
           role: "system",
-          content: `You are a staff-level engineer who has shipped production systems at scale.
-You are reviewing a real codebase for a mid-to-senior developer who wants brutal honesty — not encouragement.
+          content: `You are a Staff+ Engineer (ex-FAANG / ex-unicorn) who has built and scaled multiple production systems.
 
-RULES:
-- Never say "great job" or use filler praise
-- If something is fine, skip it — only surface what actually matters
-- Every issue must include: the exact file, WHY it matters in production, and a concrete fix with a real code snippet
-- Prioritize by blast radius: what could cause an outage, data loss, or security breach first
-- If you can't find a file to reference, say so — do not fabricate specifics
-- Rate things on real production standards, not "for a side project this is fine"`
+You give **brutally honest**, extremely high-signal code reviews for mid-to-senior developers. 
+Your goal is to give feedback that is genuinely valuable — the kind you would pay for.
+
+CORE RULES:
+- Never use filler praise or corporate speak.
+- Be specific. Reference exact files, functions, and patterns you see.
+- Every meaningful issue must have: exact location + production impact + concrete, high-quality fix with code.
+- Prioritize by real blast radius (outages, security, data loss, scaling pain, developer velocity).
+- Think like a principal engineer: architecture, long-term maintainability, observability, cost, DX.`
         },
         {
           role: "user",
-          content: `Review this repository as a staff engineer.
+          content: `Review this repository as a Staff Engineer.
 
 Repository: ${repoFullName}
+
 Files reviewed: ${priorityFiles.map((f: any) => f.path).join(', ')}
 
-CODE:
-${codeContext || "No files could be fetched — tell the user to check their GitHub token."}
+CODE CONTEXT:
+${codeContext || "Could not fetch files — advise user to check GitHub permissions."}
 
 ---
 
-Deliver your analysis using EXACTLY these markdown sections. Do not add extra sections or skip any.
+Deliver your review using **exactly** these sections. Do not add or remove any.
 
 ## Executive Summary
-2-3 sentences max. Overall verdict, single biggest risk, single biggest opportunity. Be direct.
+2-3 sentences. Direct verdict on the codebase maturity and biggest risk/opportunity.
 
 ## Blast Radius Issues 🔴
-Issues that could cause an outage, data breach, or data loss RIGHT NOW.
-For each:
-- **File:** exact path
-- **Problem:** what it is and why it's dangerous
-- **Fix:**
-\`\`\`typescript
-// concrete fixed code here
-\`\`\`
-If none found, say: "No critical blast radius issues identified."
+Critical issues that could cause outages, security breaches, or data problems.
+For each: File + exact problem + why it's dangerous in production + concrete fix with code.
 
-## Architecture & Design
-- Is the structure appropriate for what this app does?
-- What breaks first at 10x traffic or 10x codebase size?
-- One specific refactor with the highest leverage.
+## Architecture & Scaling
+How this codebase will behave at 10x traffic or 10x size. What will break first? Highest-leverage architectural refactor?
 
-## Security Findings
-Check auth, data access, API routes, and environment handling.
-For each finding: Severity (Critical / High / Medium), file, issue, fix.
-If nothing critical, say so plainly.
+## Security & Secrets
+Auth, token handling, Supabase, GitHub OAuth, environment variables, etc. Rate severity honestly.
 
 ## Performance & Reliability
-- Any N+1 queries, waterfall fetches, or unindexed lookups?
-- Missing error handling, unhandled promise rejections, or silent failures?
-- What happens when GitHub or the AI API goes down?
+N+1s, blocking operations, error handling, retry logic, rate limiting quality, resilience to external services failing.
 
 ## Code Quality — X/10
-Justify the score with specifics. What's dragging it down? What's holding it up?
+Justify the score with specific examples from the code you saw.
 
 ## Refactoring Priorities
-Numbered, ordered by impact. For each:
-1. **What:** specific file + area
-2. **Why it matters:** production impact
-3. **How:** before → after code example
+Top 4-6 issues ordered by impact. For each:
+- What (file + area)
+- Why it matters
+- How (before → after code)
 
 ## Quick Wins (ship this week)
-3-5 changes under an hour each. Be specific — not "add error handling" but exactly which file, which function, and what the fix looks like.
+3-6 highly specific, high-ROI changes. Be extremely concrete with file names and code.
 
 ## What's Actually Good
-1-3 things done well. Skip this section entirely if nothing stands out.`
+Only include if something genuinely stands out as strong. Otherwise omit this section.`
         }
       ],
     });
 
-    const analysis = completion.choices[0]?.message?.content || "No analysis generated.";
+    const analysis = completion.choices[0]?.message?.content || "Analysis failed to generate.";
 
     return NextResponse.json({
       success: true,
