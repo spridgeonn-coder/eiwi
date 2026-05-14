@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { RefreshCw, FileText, Copy, User } from "lucide-react";
+import { RefreshCw, FileText, User, Sparkles } from "lucide-react";
 import AnalysisRenderer from '@/components/AnalysisRenderer';
 
 export default function Dashboard() {
@@ -14,7 +14,6 @@ export default function Dashboard() {
   const [loadingRepos, setLoadingRepos] = useState(false);
   const [analyzingRepo, setAnalyzingRepo] = useState<string | null>(null);
   const [results, setResults] = useState<any>(null);
-  const [activeSectionId, setActiveSectionId] = useState<string>("summary");
 
   useEffect(() => {
     loadUserAndProfile();
@@ -27,11 +26,6 @@ export default function Dashboard() {
       const { data } = await supabase.from('profile').select('*').eq('user_id', user.id).single();
       setProfile(data);
     }
-  };
-
-  const handleSignOut = async () => {
-    await supabase.auth.signOut();
-    window.location.href = '/';
   };
 
   const fetchRepos = async () => {
@@ -59,7 +53,7 @@ export default function Dashboard() {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.provider_token) {
-        alert("GitHub token expired. Please reconnect.");
+        alert("GitHub token expired.");
         return;
       }
 
@@ -76,154 +70,176 @@ export default function Dashboard() {
       if (data.error) throw new Error(data.error);
       
       setResults({ ...data, repoData: repo });
-      setActiveSectionId("summary");
     } catch (error: any) {
       alert("Failed to analyze: " + error.message);
     }
     setAnalyzingRepo(null);
   };
 
-  const parseSections = (text: string) => {
-    if (!text) return [];
-    
-    const sections = text.split(/(?=^#{1,3}\s)/gm)
-      .filter(s => s.trim().length > 20)
-      .map(section => {
-        const titleMatch = section.match(/^(#{1,3})\s+(.+?)(?=\n|$)/m);
-        const title = titleMatch ? titleMatch[2].trim() : "Analysis";
-        const id = title.toLowerCase().replace(/[^a-z0-9]+/g, '-');
-        return { id, title, content: section.trim() };
-      });
-
-    return sections.length > 0 
-      ? sections 
-      : [{ id: "summary", title: "Full Analysis", content: text }];
-  };
-
-  const parsedSections = results?.analysis ? parseSections(results.analysis) : [];
-  const currentSection = parsedSections.find(s => s.id === activeSectionId) || parsedSections[0];
-
-  const copyAll = () => {
-    if (results?.analysis) {
-      navigator.clipboard.writeText(results.analysis);
-      alert("✅ Copied to clipboard");
-    }
-  };
-
-  const displayName = profile?.first_name || profile?.last_name 
-    ? `${profile.first_name || ''} ${profile.last_name || ''}`.trim() 
-    : user?.email?.split('@')[0] || 'User';
+  const displayName = profile?.first_name || user?.email?.split('@')[0] || 'User';
 
   return (
     <div className="min-h-screen bg-zinc-950 text-white">
+      {/* Top Navigation */}
       <nav className="border-b border-zinc-800 bg-zinc-900/80 backdrop-blur-md sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-8 py-5 flex items-center justify-between">
+        <div className="max-w-7xl mx-auto px-8 py-4 flex items-center justify-between">
           <div className="flex items-center gap-4">
-            <div className="w-9 h-9 bg-gradient-to-br from-violet-500 via-fuchsia-500 to-purple-600 rounded-2xl flex items-center justify-center">
-              <span className="font-bold text-2xl">E</span>
+            <div className="w-10 h-10 bg-gradient-to-br from-violet-600 to-purple-600 rounded-2xl flex items-center justify-center">
+              <span className="font-bold text-3xl">E</span>
             </div>
             <h1 className="text-3xl font-bold tracking-tighter">Eiwi</h1>
           </div>
+
           <div className="flex items-center gap-6">
-            <a href="/profile" className="text-zinc-400 hover:text-white flex items-center gap-2">
-              <User className="w-4 h-4" /> Profile
-            </a>
-            <span className="text-zinc-400">Welcome, {displayName}</span>
-            <Button onClick={handleSignOut} variant="outline">Sign Out</Button>
+            <div className="relative w-80">
+              <input
+                type="text"
+                placeholder="Search repositories..."
+                className="w-full bg-zinc-800 border border-zinc-700 rounded-full py-2.5 px-5 pl-12 text-sm focus:outline-none focus:border-violet-500"
+              />
+              <div className="absolute left-4 top-3 text-zinc-500">🔍</div>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <div className="text-right">
+                <p className="font-medium">Nick</p>
+                <p className="text-xs text-zinc-500">Pro Plan</p>
+              </div>
+              <div className="w-9 h-9 bg-zinc-700 rounded-full flex items-center justify-center">
+                👤
+              </div>
+            </div>
           </div>
         </div>
       </nav>
 
-      <div className="max-w-7xl mx-auto px-8 py-12">
-        <div className="flex justify-between items-end mb-10">
-          <div>
-            <h2 className="text-5xl font-bold tracking-tight">Dashboard</h2>
-            <p className="text-zinc-400 mt-2">AI-powered code analysis</p>
+      <div className="max-w-7xl mx-auto px-8 py-10 flex gap-8">
+        {/* Left Sidebar - Repositories */}
+        <div className="w-80 flex-shrink-0">
+          <div className="flex items-center justify-between mb-6">
+            <h2 className="text-xl font-semibold">Repositories</h2>
+            <Button onClick={fetchRepos} disabled={loadingRepos} size="sm" variant="outline">
+              <RefreshCw className={`w-4 h-4 mr-2 ${loadingRepos ? 'animate-spin' : ''}`} />
+              Refresh
+            </Button>
           </div>
-          <Button onClick={fetchRepos} disabled={loadingRepos} className="gap-3">
-            <RefreshCw className={`w-5 h-5 ${loadingRepos ? 'animate-spin' : ''}`} />
-            Refresh Repositories
-          </Button>
-        </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-          {/* Repositories */}
-          <div className="lg:col-span-5">
-            <Card className="bg-zinc-900/70 border border-zinc-700">
-              <CardHeader><CardTitle>Your Repositories</CardTitle></CardHeader>
-              <CardContent className="pt-6 space-y-4">
-                {repos.length === 0 ? (
-                  <p className="text-zinc-500 py-8 text-center">Click Refresh Repositories to load your repos</p>
-                ) : (
-                  repos.map((repo: any) => (
-                    <div key={repo.id} className="p-5 bg-zinc-800 rounded-2xl flex justify-between items-center">
-                      <div className="min-w-0 flex-1">
-                        <p className="font-semibold">{repo.name}</p>
-                        <p className="text-sm text-zinc-400 line-clamp-2">{repo.description || 'No description'}</p>
+          <div className="space-y-3">
+            {repos.length === 0 ? (
+              <p className="text-zinc-500 text-center py-8">No repositories loaded</p>
+            ) : (
+              repos.map((repo: any) => (
+                <Card key={repo.id} className="bg-zinc-900 border-zinc-800 hover:border-violet-500/50 transition-colors">
+                  <CardContent className="p-5">
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <p className="font-semibold text-lg">{repo.name}</p>
+                        <p className="text-sm text-zinc-400 line-clamp-2 mt-1">
+                          {repo.description || 'No description'}
+                        </p>
                       </div>
-                      <Button 
-                        onClick={() => analyzeRepo(repo)} 
+                      <Button
+                        onClick={() => analyzeRepo(repo)}
                         disabled={analyzingRepo === repo.full_name}
+                        className="bg-violet-600 hover:bg-violet-700 text-white"
+                        size="sm"
                       >
                         {analyzingRepo === repo.full_name ? 'Analyzing...' : 'Analyze'}
                       </Button>
                     </div>
-                  ))
-                )}
+                  </CardContent>
+                </Card>
+              ))
+            )}
+          </div>
+        </div>
+
+        {/* Main Content */}
+        <div className="flex-1 space-y-8">
+          <div>
+            <h1 className="text-5xl font-bold tracking-tight">Welcome back, {displayName}</h1>
+            <p className="text-zinc-400 mt-2">Let's improve your code today.</p>
+          </div>
+
+          {/* Stats Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <Card className="bg-zinc-900 border-zinc-800">
+              <CardContent className="p-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-zinc-400 text-sm">Code Health</p>
+                    <p className="text-5xl font-bold text-white mt-3">8.7<span className="text-2xl">/10</span></p>
+                  </div>
+                  <div className="w-12 h-12 bg-violet-500/10 rounded-2xl flex items-center justify-center">
+                    ⭐
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="bg-zinc-900 border-zinc-800">
+              <CardContent className="p-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-zinc-400 text-sm">Issues Found</p>
+                    <p className="text-5xl font-bold text-white mt-3">12</p>
+                  </div>
+                  <div className="w-12 h-12 bg-emerald-500/10 rounded-2xl flex items-center justify-center text-emerald-400">
+                    ⚠️
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="bg-zinc-900 border-zinc-800">
+              <CardContent className="p-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-zinc-400 text-sm">Analysis Score</p>
+                    <p className="text-5xl font-bold text-white mt-3">87<span className="text-2xl">%</span></p>
+                  </div>
+                  <div className="relative w-14 h-14">
+                    <svg className="w-14 h-14 -rotate-12" viewBox="0 0 36 36">
+                      <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#4F46E5" strokeWidth="3" strokeDasharray="87, 100" />
+                    </svg>
+                  </div>
+                </div>
               </CardContent>
             </Card>
           </div>
 
-          {/* Analysis Area */}
-          <div className="lg:col-span-7">
-            <Card className="bg-zinc-900/70 border border-zinc-700 overflow-hidden">
-              <CardHeader className="border-b border-zinc-700 flex flex-row items-center justify-between">
+          {/* Detailed Analysis */}
+          <Card className="bg-zinc-900 border-zinc-800">
+            <CardHeader className="border-b border-zinc-800">
+              <div className="flex items-center justify-between">
                 <CardTitle className="flex items-center gap-3">
                   <FileText className="w-6 h-6 text-violet-400" />
                   Detailed Analysis
                 </CardTitle>
-
-                <Button onClick={copyAll} disabled={!results} variant="outline">
-                  <Copy className="w-4 h-4 mr-2" /> Copy All
-                </Button>
-              </CardHeader>
-
-              <CardContent className="p-0">
-                {results ? (
-                  <div className="flex h-[720px]">
-                    <div className="w-72 border-r border-zinc-700 bg-zinc-950 p-4 overflow-auto">
-                      <div className="uppercase text-xs tracking-widest text-zinc-500 mb-4">SECTIONS</div>
-                      <div className="space-y-1">
-                        {parsedSections.map((sec: any) => (
-                          <button
-                            key={sec.id}
-                            onClick={() => setActiveSectionId(sec.id)}
-                            className={`w-full text-left px-4 py-3 rounded-xl text-sm transition-all ${
-                              activeSectionId === sec.id ? 'bg-violet-600 text-white font-medium' : 'hover:bg-zinc-800 text-zinc-400'
-                            }`}
-                          >
-                            {sec.title}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    <div className="flex-1 p-10 overflow-auto">
-                      <AnalysisRenderer content={currentSection?.content || ''} />
-                    </div>
-                  </div>
-                ) : (
-                  <div className="h-[720px] flex items-center justify-center text-center">
-                    <div>
-                      <FileText className="w-16 h-16 text-zinc-600 mx-auto mb-6" />
-                      <p className="text-2xl text-white">Ready when you are</p>
-                      <p className="text-zinc-400 mt-3">Select a repository and click Analyze</p>
-                    </div>
+                {results && (
+                  <div className="text-sm text-zinc-400">
+                    {results.repoData?.full_name}
                   </div>
                 )}
-              </CardContent>
-            </Card>
-          </div>
+              </div>
+            </CardHeader>
+
+            <CardContent className="p-8">
+              {results ? (
+                <AnalysisRenderer content={results.analysis} />
+              ) : (
+                <div className="h-[500px] flex flex-col items-center justify-center text-center">
+                  <div className="w-20 h-20 bg-zinc-800 rounded-3xl flex items-center justify-center mb-6">
+                    📊
+                  </div>
+                  <h3 className="text-2xl font-semibold mb-3">Ready to analyze</h3>
+                  <p className="text-zinc-400 max-w-md">
+                    Select a repository from the left and click Analyze to get a deep technical review.
+                  </p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
         </div>
       </div>
     </div>
