@@ -33,7 +33,9 @@ export async function POST(request: NextRequest) {
 
     for (const dir of importantDirs) {
       try {
-        const url = dir ? `https://api.github.com/repos/${repoFullName}/contents/${dir}` : `https://api.github.com/repos/${repoFullName}/contents`;
+        const url = dir
+          ? `https://api.github.com/repos/${repoFullName}/contents/${dir}`
+          : `https://api.github.com/repos/${repoFullName}/contents`;
         const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
         if (res.ok) {
           const data = await res.json();
@@ -43,8 +45,8 @@ export async function POST(request: NextRequest) {
     }
 
     const priorityFiles = allFiles
-      .filter((f: any) => f.type === 'file' && 
-        (f.name.endsWith('.tsx') || f.name.endsWith('.ts') || f.name.endsWith('.js') || 
+      .filter((f: any) => f.type === 'file' &&
+        (f.name.endsWith('.tsx') || f.name.endsWith('.ts') || f.name.endsWith('.js') ||
          f.name === 'README.md' || f.name.includes('package.json')))
       .slice(0, 30);
 
@@ -86,13 +88,13 @@ ${codeContext || "Could not fetch files."}
 
 Deliver the review in this exact style and structure:
 
-**Executive Summary**  
+**Executive Summary**
 One paragraph with overall maturity and biggest concerns.
 
-**Critical / High Risks**  
-- **Risk level: High/Critical**  
-  **Description:** Detailed observation referencing exact file + code pattern.  
-  **Why it matters:** Real production impact.  
+**Critical / High Risks**
+- **Risk level: High/Critical**
+  **Description:** Detailed observation referencing exact file + code pattern.
+  **Why it matters:** Real production impact.
   **Recommendation:** Concrete fix or refactor.
 
 **Architecture & Design Issues**
@@ -107,29 +109,65 @@ One paragraph with overall maturity and biggest concerns.
 
 **Quick Wins** (very specific, file + code)
 
-**What's Actually Good** (only if genuinely strong)`
+**What's Actually Good** (only if genuinely strong)
+
+**Top Priority Fix**
+File: [exact filename]
+Issue: [one sentence]
+Fix: [one sentence concrete fix]
+
+**Tech Debt Estimate**
+Hours: [realistic number between 8 and 120]
+Reason: [one sentence justification]`
         }
       ],
     });
 
     const analysis = completion.choices[0]?.message?.content || "No analysis generated.";
 
-    // Pull quality score out of the text (looks for "Code Quality — 7/10" pattern)
+    // Quality score
     const qualityMatch = analysis.match(/Code Quality[^\d]*(\d+)\s*\/\s*10/i);
     const qualityScore = qualityMatch ? Math.round(parseInt(qualityMatch[1]) * 10) : 75;
 
-    // Count critical/high issues for blast radius
+    // Blast radius
     const criticalCount = (analysis.match(/\*\*Risk level: Critical\*\*/gi) || []).length;
     const highCount = (analysis.match(/\*\*Risk level: High\*\*/gi) || []).length;
     const blastRadius = Math.min(99, (criticalCount * 15) + (highCount * 8) + 20);
 
-    // Security score (more security-related issues = lower score)
+    // Security score
     const securityIssues = (analysis.match(/security|auth|token|exposure/gi) || []).length;
     const security = Math.max(10, 100 - (securityIssues * 3));
 
-    // Performance score (more performance-related issues = lower score)
+    // Performance score
     const perfIssues = (analysis.match(/performance|slow|latency|optimize/gi) || []).length;
     const performance = Math.max(10, 100 - (perfIssues * 4));
+
+    // Tech debt hours
+    const techDebtMatch = analysis.match(/Hours:\s*(\d+)/i);
+    const techDebt = techDebtMatch ? parseInt(techDebtMatch[1]) : 20;
+
+    // Top priority fix
+    const topFixFileMatch = analysis.match(/Top Priority Fix[\s\S]*?File:\s*([^\n]+)/i);
+    const topFixIssueMatch = analysis.match(/Top Priority Fix[\s\S]*?Issue:\s*([^\n]+)/i);
+    const topFixRecommendationMatch = analysis.match(/Top Priority Fix[\s\S]*?Fix:\s*([^\n]+)/i);
+
+    const topPriorityFix = {
+      file: topFixFileMatch?.[1]?.trim() || 'See full analysis',
+      issue: topFixIssueMatch?.[1]?.trim() || 'Critical issue detected — view full analysis for details',
+      fix: topFixRecommendationMatch?.[1]?.trim() || 'See recommendations in the Analysis tab',
+    };
+
+    // Files scanned with status
+    const scannedFiles = priorityFiles.map((f: any) => {
+      const name = f.path;
+      const isCritical = analysis.toLowerCase().includes(name.toLowerCase()) &&
+        (analysis.toLowerCase().indexOf('critical') < analysis.toLowerCase().indexOf(name.toLowerCase()) + 200);
+      const isReview = analysis.toLowerCase().includes(name.toLowerCase());
+      return {
+        path: name,
+        status: isCritical ? 'Critical' : isReview ? 'Review' : 'Clean',
+      };
+    }).slice(0, 6);
 
     return NextResponse.json({
       success: true,
@@ -140,6 +178,9 @@ One paragraph with overall maturity and biggest concerns.
         blastRadius,
         security,
         performance,
+        techDebt,
+        topPriorityFix,
+        scannedFiles,
       }
     });
 

@@ -2,62 +2,46 @@
 
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
-import { Search, User, Clipboard, Zap } from "lucide-react";
+import { Search, User, Clipboard } from "lucide-react";
 import AnalysisRenderer from '@/components/AnalysisRenderer';
 
 function CircularGauge({ value }: { value: number }) {
   const radius = 54;
   const circumference = 2 * Math.PI * radius;
   const offset = circumference - (value / 100) * circumference;
+  const color = value >= 75 ? '#4ade80' : value >= 45 ? '#fb923c' : '#f87171';
+  const label = value >= 75 ? 'Good' : value >= 45 ? 'Moderate' : 'Critical';
   return (
-    <div className="relative flex items-center justify-center w-40 h-40">
-      <svg className="w-40 h-40 -rotate-90" viewBox="0 0 140 140">
-        <circle cx="70" cy="70" r={radius} fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth="10" />
-        <circle
-          cx="70" cy="70" r={radius}
-          fill="none"
-          stroke="url(#gaugeGrad)"
-          strokeWidth="10"
-          strokeLinecap="round"
-          strokeDasharray={circumference}
-          strokeDashoffset={offset}
-          style={{ transition: 'stroke-dashoffset 1s ease' }}
-        />
-        <defs>
-          <linearGradient id="gaugeGrad" x1="0%" y1="0%" x2="100%" y2="0%">
-            <stop offset="0%" stopColor="#a855f7" />
-            <stop offset="100%" stopColor="#7c3aed" />
-          </linearGradient>
-        </defs>
-      </svg>
-      <div className="absolute flex flex-col items-center">
-        <span className="text-4xl font-bold text-white">{value}%</span>
+    <div className="flex flex-col items-center justify-center">
+      <div className="relative flex items-center justify-center w-36 h-36">
+        <svg className="w-36 h-36 -rotate-90" viewBox="0 0 140 140">
+          <circle cx="70" cy="70" r={radius} fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth="10" />
+          <circle
+            cx="70" cy="70" r={radius}
+            fill="none"
+            stroke="url(#gaugeGrad)"
+            strokeWidth="10"
+            strokeLinecap="round"
+            strokeDasharray={circumference}
+            strokeDashoffset={offset}
+            style={{ transition: 'stroke-dashoffset 1s ease' }}
+          />
+          <defs>
+            <linearGradient id="gaugeGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+              <stop offset="0%" stopColor="#a855f7" />
+              <stop offset="100%" stopColor="#7c3aed" />
+            </linearGradient>
+          </defs>
+        </svg>
+        <div className="absolute flex flex-col items-center">
+          <span className="text-3xl font-bold text-white">{value}%</span>
+        </div>
       </div>
+      <span className="text-sm font-semibold mt-2" style={{ color }}>{label}</span>
+      <span className="text-xs text-zinc-600 mt-1">Overall repo health</span>
     </div>
   );
 }
-
-const CODE_LINES = [
-  `currcnig", $ll, "l","terreadlaterv"americ"lcu"){`,
-  `  norplicgleterle"r'yline');`,
-  `};`,
-  ``,
-  `currcnig", $ll, e"Wall"fromradtanirm dupartime'"ruely!"){`,
-  `  norplicgumtre"k""yyitt";`,
-  `};`,
-  ``,
-  `currcnig("{ "terriglatrer"smlecilmtho){ {;`,
-  `  currcnig", $l,s'{"lulofarrpos"rable"umnlion"umnee"){`,
-  `    currcnig", $l,""\\pri"lite";`,
-  `    norplicgeslukte' "\\ri"lite";`,
-  `  }`,
-  `};`,
-  `currcnig("| Sll,s"gamlll"enter{"ulit'$;/flite'"muoef'n"){`,
-  `  norplicgcrlumtre"\\Vontierlie";"fomtipmnrir/"lib";`,
-  `  };`,
-  `}`,
-  `)`,
-];
 
 export default function Dashboard() {
   const [user, setUser] = useState<any>(null);
@@ -72,10 +56,12 @@ export default function Dashboard() {
 
   const [stats, setStats] = useState({
     quality: 85,
-    blastRadius: 87, blastRange: '310 m 624-32',
-    securityMm: 49,  securityRange: '310 m 225-90',
-    performanceMm: 53, performanceRange: '310 m 224-96',
-    securityMm2: 47, securityRange2: '349 m 676-95',
+    blastRadius: 87,
+    securityMm: 49,
+    performanceMm: 53,
+    techDebt: 20,
+    topPriorityFix: null as null | { file: string; issue: string; fix: string },
+    scannedFiles: [] as { path: string; status: string }[],
   });
 
   useEffect(() => {
@@ -104,7 +90,6 @@ export default function Dashboard() {
 
       setGithubToken(token);
     };
-
     init();
   }, []);
 
@@ -154,6 +139,9 @@ export default function Dashboard() {
           blastRadius: data.structured.blastRadius ?? prev.blastRadius,
           securityMm: data.structured.security ?? prev.securityMm,
           performanceMm: data.structured.performance ?? prev.performanceMm,
+          techDebt: data.structured.techDebt ?? prev.techDebt,
+          topPriorityFix: data.structured.topPriorityFix ?? prev.topPriorityFix,
+          scannedFiles: data.structured.scannedFiles ?? prev.scannedFiles,
         }));
       }
     } catch (error: any) {
@@ -162,17 +150,17 @@ export default function Dashboard() {
     setAnalyzingRepo(null);
   };
 
-  const displayName = user?.user_metadata?.user_name
-    || user?.user_metadata?.full_name?.split(' ')[0]
-    || user?.email?.split('@')[0]
-    || 'there';
-
   const getColor = (score: number, invert = false) => {
     const v = invert ? 100 - score : score;
     if (v >= 75) return { text: '#4ade80', bg: 'rgba(74,222,128,0.08)', border: 'rgba(74,222,128,0.25)', label: 'Good' };
     if (v >= 45) return { text: '#fb923c', bg: 'rgba(251,146,60,0.08)', border: 'rgba(251,146,60,0.25)', label: 'Moderate' };
     return { text: '#f87171', bg: 'rgba(248,113,113,0.08)', border: 'rgba(248,113,113,0.25)', label: 'Critical' };
   };
+
+  const displayName = user?.user_metadata?.user_name
+    || user?.user_metadata?.full_name?.split(' ')[0]
+    || user?.email?.split('@')[0]
+    || 'there';
 
   const sidebarContent = () => {
     if (tokenError) return (
@@ -229,31 +217,37 @@ export default function Dashboard() {
       badge: 'Blast Radius',
       value: stats.blastRadius,
       unit: 'files at risk',
-      sub: 'How many files could be affected by a breaking change',
+      sub: 'Files affected by a breaking change',
       color: getColor(stats.blastRadius, true),
     },
     {
       badge: 'Security',
       value: stats.securityMm,
       unit: '/ 100',
-      sub: 'Exposure risk from auth, tokens & environment variables',
+      sub: 'Auth, token & env variable exposure',
       color: getColor(stats.securityMm),
     },
     {
       badge: 'Performance',
       value: stats.performanceMm,
       unit: '/ 100',
-      sub: 'Estimated runtime efficiency and load time impact',
+      sub: 'Runtime efficiency & load time',
       color: getColor(stats.performanceMm),
     },
     {
-      badge: 'Code Quality',
-      value: stats.quality,
-      unit: '/ 100',
-      sub: 'Overall code structure, readability and maintainability',
-      color: getColor(stats.quality),
+      badge: 'Tech Debt',
+      value: stats.techDebt,
+      unit: 'hrs to fix',
+      sub: 'Estimated cleanup effort',
+      color: getColor(100 - Math.min(stats.techDebt, 100)),
     },
   ];
+
+  const fileStatusColor = (status: string) => {
+    if (status === 'Critical') return { text: '#f87171', bg: 'rgba(248,113,113,0.12)' };
+    if (status === 'Review') return { text: '#fb923c', bg: 'rgba(251,146,60,0.12)' };
+    return { text: '#4ade80', bg: 'rgba(74,222,128,0.1)' };
+  };
 
   return (
     <div className="min-h-screen text-white" style={{ background: '#0b0b14' }}>
@@ -321,12 +315,10 @@ export default function Dashboard() {
               <div className="grid grid-cols-12 gap-4">
 
                 {/* Code Quality Gauge */}
-                <div className="col-span-12 lg:col-span-5 rounded-3xl p-8 flex flex-col"
+                <div className="col-span-12 lg:col-span-5 rounded-3xl p-8 flex flex-col items-center justify-center"
                   style={{ background: 'linear-gradient(145deg,#2d1b69 0%,#1a0f3c 55%,#0f0820 100%)', border: '1px solid rgba(139,92,246,0.3)', minHeight: '230px' }}>
                   <p className="text-xs uppercase tracking-widest text-violet-300/60 font-medium mb-6">Code Quality Score</p>
-                  <div className="flex items-center justify-center flex-1">
-                    <CircularGauge value={stats.quality} />
-                  </div>
+                  <CircularGauge value={stats.quality} />
                 </div>
 
                 {/* Summary Analysis */}
@@ -340,18 +332,18 @@ export default function Dashboard() {
                       </p>
                     ) : (
                       <p className="text-zinc-500 text-sm leading-relaxed">
-                        Select a repository from the left to run an AI analysis. You'll get a full breakdown covering code quality, security vulnerabilities, blast radius issues, and performance.
+                        Select a repository from the left to run an AI analysis. You'll get a full breakdown covering code quality, security vulnerabilities, blast radius, and performance.
                       </p>
                     )}
                   </div>
                   {results && (
-                    <button onClick={() => setActiveTab('analysis')} className="text-xs text-violet-400 hover:text-violet-300 flex items-center gap-1 transition-colors mt-4 self-start">
+                    <button onClick={() => setActiveTab('analysis')} className="text-xs text-violet-400 hover:text-violet-300 transition-colors mt-4 self-start">
                       View full analysis →
                     </button>
                   )}
                 </div>
 
-                {/* Stat Cards */}
+                {/* 4 Stat Cards */}
                 {statCards.map((card, i) => (
                   <div key={i} className="col-span-6 lg:col-span-3 rounded-3xl p-6 flex flex-col justify-between"
                     style={{ background: card.color.bg, border: `1px solid ${card.color.border}`, minHeight: '155px' }}>
@@ -371,25 +363,48 @@ export default function Dashboard() {
                   </div>
                 ))}
 
-                {/* Decorative code block */}
-                <div className="col-span-12 lg:col-span-6 rounded-3xl overflow-hidden"
-                  style={{ background: '#0d0d18', border: '1px solid rgba(255,255,255,0.06)' }}>
-                  <div className="flex items-center gap-2 px-5 py-3 border-b border-white/[0.05]">
-                    <div className="w-2.5 h-2.5 rounded-full bg-red-500/60" />
-                    <div className="w-2.5 h-2.5 rounded-full bg-yellow-500/60" />
-                    <div className="w-2.5 h-2.5 rounded-full bg-green-500/60" />
-                    <span className="text-xs text-zinc-600 ml-2 font-mono">{selectedRepo?.name || 'repository'}/route.ts</span>
+                {/* Top Priority Fix */}
+                <div className="col-span-12 lg:col-span-6 rounded-3xl p-6"
+                  style={{ background: '#111119', border: '1px solid rgba(248,113,113,0.3)' }}>
+                  <div className="flex items-center gap-2 mb-4">
+                    <div className="w-2 h-2 rounded-full bg-red-400 flex-shrink-0" />
+                    <span className="text-xs font-semibold text-red-400 uppercase tracking-widest">Top Priority Fix</span>
                   </div>
-                  <div className="p-5 font-mono text-[11px] leading-5 overflow-hidden" style={{ maxHeight: '200px' }}>
-                    {CODE_LINES.map((line, i) => (
-                      <div key={i} className="flex gap-4">
-                        <span className="text-zinc-700 select-none w-5 text-right flex-shrink-0">{i + 1}</span>
-                        <span className={line.includes('currcnig') ? 'text-violet-400' : line.includes('norplicg') ? 'text-cyan-400/80' : line.startsWith('  ') ? 'text-zinc-300' : 'text-zinc-600'}>
-                          {line || ' '}
-                        </span>
+                  {stats.topPriorityFix ? (
+                    <>
+                      <p className="text-sm font-medium text-zinc-100 mb-1">{stats.topPriorityFix.issue}</p>
+                      <p className="text-xs text-violet-400 font-mono mb-3">{stats.topPriorityFix.file}</p>
+                      <div className="rounded-xl p-3" style={{ background: 'rgba(248,113,113,0.08)' }}>
+                        <p className="text-xs text-red-300 font-mono leading-relaxed">Fix: {stats.topPriorityFix.fix}</p>
                       </div>
-                    ))}
-                  </div>
+                    </>
+                  ) : (
+                    <p className="text-zinc-600 text-sm">Run an analysis to surface your top priority fix.</p>
+                  )}
+                </div>
+
+                {/* Files Scanned */}
+                <div className="col-span-12 lg:col-span-6 rounded-3xl p-6"
+                  style={{ background: '#111119', border: '1px solid rgba(255,255,255,0.06)' }}>
+                  <p className="text-xs font-semibold text-zinc-500 uppercase tracking-widest mb-4">Files Scanned</p>
+                  {stats.scannedFiles.length > 0 ? (
+                    <div className="space-y-2">
+                      {stats.scannedFiles.map((file, i) => {
+                        const c = fileStatusColor(file.status);
+                        return (
+                          <div key={i} className="flex items-center justify-between">
+                            <span className="text-xs font-mono text-indigo-400 truncate mr-3">{file.path}</span>
+                            <span className="text-xs px-2 py-0.5 rounded-md flex-shrink-0 font-medium"
+                              style={{ color: c.text, background: c.bg }}>
+                              {file.status}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <p className="text-zinc-600 text-sm">Files scanned during analysis will appear here.</p>
+                  )}
                 </div>
 
               </div>
