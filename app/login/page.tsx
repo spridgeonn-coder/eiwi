@@ -41,10 +41,6 @@ const CODE_LINES = [
   `currcnig", $ll, "l","terreadlaterv"americ"lcu"){`,
   ` norplicgleterle"r'yline');`,
   `};`,
-  ``,
-  `currcnig", $ll, e"Wall"fromradtanirm dupartime'"ruely!"){`,
-  ` norplicgumtre"k""yyitt";`,
-  `};`,
 ];
 
 export default function Dashboard() {
@@ -55,9 +51,8 @@ export default function Dashboard() {
   const [results, setResults] = useState<any>(null);
   const [selectedRepo, setSelectedRepo] = useState<any>(null);
   const [activeTab, setActiveTab] = useState<'overview' | 'analysis' | 'issues'>('overview');
-  const [tokenError, setTokenError] = useState(false);
 
-  // Dynamic stats updated by AI
+  // Dynamic stats
   const [stats, setStats] = useState({
     quality: 85,
     blastRadius: 87,
@@ -71,10 +66,7 @@ export default function Dashboard() {
 
   const initApp = async () => {
     const { data: { user } } = await supabase.auth.getUser();
-    if (!user) {
-      window.location.href = '/login';
-      return;
-    }
+    if (!user) return;
     setUser(user);
 
     const { data: { session } } = await supabase.auth.getSession();
@@ -100,7 +92,6 @@ export default function Dashboard() {
     setAnalyzingRepo(repo.full_name);
     setResults(null);
     setSelectedRepo(repo);
-    setActiveTab('analysis');
 
     try {
       const { data: { session } } = await supabase.auth.getSession();
@@ -118,7 +109,7 @@ export default function Dashboard() {
 
       setResults(data);
 
-      // Update dashboard stats from AI
+      // Update stats for Overview tab
       if (data.structured) {
         setStats({
           quality: data.structured.qualityScore || 85,
@@ -227,60 +218,39 @@ export default function Dashboard() {
                 </div>
 
                 {/* Summary Analysis */}
-                <div className="col-span-12 lg:col-span-7 rounded-3xl p-8 flex flex-col justify-between" 
-                     style={{ background: '#111119', border: '1px solid rgba(255,255,255,0.06)', minHeight: '230px' }}>
-                  <div>
-                    <h3 className="text-base font-semibold text-white mb-3">Summary Analysis</h3>
-                    {results?.analysis ? (
-                      <p className="text-zinc-400 text-sm leading-relaxed line-clamp-6">
-                        {results.analysis.split('\n').slice(0, 3).join(' ')}
-                      </p>
-                    ) : (
-                      <p className="text-zinc-500 text-sm leading-relaxed">
-                        Select a repository from the left to run an AI analysis.
-                      </p>
-                    )}
-                  </div>
+                <div className="col-span-12 lg:col-span-7 rounded-3xl p-8" style={{ background: '#111119', border: '1px solid rgba(255,255,255,0.06)' }}>
+                  <h3 className="text-base font-semibold mb-3">Summary Analysis</h3>
+                  <p className="text-zinc-400 text-sm leading-relaxed">
+                    {results?.analysis ? results.analysis.split('\n')[0] || "Analysis complete" : "Select a repository from the left to run an AI analysis."}
+                  </p>
                 </div>
 
                 {/* Blast Radius */}
-                <div className="col-span-6 lg:col-span-3 rounded-3xl p-6 flex flex-col justify-between" 
-                     style={{ background: '#16102a', border: '1px solid rgba(168,85,247,0.2)', minHeight: '155px' }}>
+                <div className="col-span-6 lg:col-span-3 rounded-3xl p-6" style={{ background: '#16102a', border: '1px solid rgba(168,85,247,0.2)' }}>
                   <span className="text-xs bg-white/[0.07] text-zinc-300 px-2.5 py-1 rounded-lg font-medium">Blast Radius</span>
-                  <div>
-                    <div className="text-4xl font-bold mt-2">{stats.blastRadius}</div>
-                    <div className="text-xs text-zinc-600 mt-1">Critical Issues</div>
-                  </div>
+                  <div className="text-4xl font-bold mt-4">{stats.blastRadius}</div>
+                  <div className="text-xs text-zinc-600">Critical Issues</div>
                 </div>
 
                 {/* Security */}
-                <div className="col-span-6 lg:col-span-3 rounded-3xl p-6 flex flex-col justify-between" 
-                     style={{ background: '#111119', border: '1px solid rgba(255,255,255,0.06)', minHeight: '155px' }}>
+                <div className="col-span-6 lg:col-span-3 rounded-3xl p-6" style={{ background: '#111119', border: '1px solid rgba(255,255,255,0.06)' }}>
                   <span className="text-xs bg-white/[0.07] text-zinc-300 px-2.5 py-1 rounded-lg font-medium">Security</span>
-                  <div>
-                    <div className="text-4xl font-bold mt-2">{stats.security}</div>
-                    <div className="text-xs text-zinc-600 mt-1">mm exposure</div>
-                  </div>
+                  <div className="text-4xl font-bold mt-4">{stats.security}</div>
+                  <div className="text-xs text-zinc-600">mm exposure</div>
                 </div>
 
                 {/* Performance */}
-                <div className="col-span-6 lg:col-span-3 rounded-3xl p-6 flex flex-col justify-between" 
-                     style={{ background: '#16102a', border: '1px solid rgba(168,85,247,0.2)', minHeight: '155px' }}>
+                <div className="col-span-6 lg:col-span-3 rounded-3xl p-6" style={{ background: '#16102a', border: '1px solid rgba(168,85,247,0.2)' }}>
                   <span className="text-xs bg-white/[0.07] text-zinc-300 px-2.5 py-1 rounded-lg font-medium">Performance</span>
-                  <div>
-                    <div className="text-4xl font-bold mt-2">{stats.performance}</div>
-                    <div className="text-xs text-zinc-600 mt-1">score</div>
-                  </div>
+                  <div className="text-4xl font-bold mt-4">{stats.performance}</div>
+                  <div className="text-xs text-zinc-600">score</div>
                 </div>
 
                 {/* Second Security */}
-                <div className="col-span-6 lg:col-span-3 rounded-3xl p-6 flex flex-col justify-between" 
-                     style={{ background: '#111119', border: '1px solid rgba(255,255,255,0.06)', minHeight: '155px' }}>
+                <div className="col-span-6 lg:col-span-3 rounded-3xl p-6" style={{ background: '#111119', border: '1px solid rgba(255,255,255,0.06)' }}>
                   <span className="text-xs bg-white/[0.07] text-zinc-300 px-2.5 py-1 rounded-lg font-medium">Security</span>
-                  <div>
-                    <div className="text-4xl font-bold mt-2">47</div>
-                    <div className="text-xs text-zinc-600 mt-1">mm exposure</div>
-                  </div>
+                  <div className="text-4xl font-bold mt-4">47</div>
+                  <div className="text-xs text-zinc-600">mm exposure</div>
                 </div>
               </div>
             </div>
@@ -301,7 +271,7 @@ export default function Dashboard() {
                   <div className="h-[500px] flex items-center justify-center text-center">
                     <div>
                       <div className="w-10 h-10 border-2 border-violet-500 border-t-transparent rounded-full animate-spin mx-auto mb-6" />
-                      <p className="text-xl">Analyzing {selectedRepo?.name}...</p>
+                      <p className="text-xl text-white">Analyzing {selectedRepo?.name}...</p>
                     </div>
                   </div>
                 ) : results ? (
