@@ -8,6 +8,37 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
+async function fetchDirRecursive(
+  repoFullName: string,
+  token: string,
+  path: string = '',
+  depth: number = 0,
+  collected: any[] = []
+): Promise<any[]> {
+  if (depth > 3 || collected.length > 80) return collected;
+  try {
+    const url = path
+      ? `https://api.github.com/repos/${repoFullName}/contents/${path}`
+      : `https://api.github.com/repos/${repoFullName}/contents`;
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+    if (!res.ok) return collected;
+    const items = await res.json();
+    if (!Array.isArray(items)) return collected;
+
+    for (const item of items) {
+      if (item.type === 'file') {
+        collected.push(item);
+      } else if (item.type === 'dir') {
+        const skip = ['node_modules', '.git', '.next', 'dist', 'build', 'coverage', 'public', '.husky'];
+        if (!skip.includes(item.name)) {
+          await fetchDirRecursive(repoFullName, token, item.path, depth + 1, collected);
+        }
+      }
+    }
+  } catch (_) {}
+  return collected;
+}
+
 export async function POST(request: NextRequest) {
   try {
     const supabase = createServerClient(
@@ -28,27 +59,45 @@ export async function POST(request: NextRequest) {
     }
     if (!token) return NextResponse.json({ error: "GitHub token missing" }, { status: 401 });
 
-    const importantDirs = ['', 'app', 'lib', 'components', 'src', 'utils', 'hooks', 'api', 'middleware'];
-    let allFiles: any[] = [];
+    // Recursively fetch all files in the repo
+    const allFiles = await fetchDirRecursive(repoFullName, token);
 
-    for (const dir of importantDirs) {
-      try {
-        const url = dir
-          ? `https://api.github.com/repos/${repoFullName}/contents/${dir}`
-          : `https://api.github.com/repos/${repoFullName}/contents`;
-        const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
-        if (res.ok) {
-          const data = await res.json();
-          allFiles = [...allFiles, ...(Array.isArray(data) ? data : [data])];
-        }
-      } catch (_) {}
-    }
-
+    // Prioritize the most important file types, skip lock files and generated files
     const priorityFiles = allFiles
-      .filter((f: any) => f.type === 'file' &&
-        (f.name.endsWith('.tsx') || f.name.endsWith('.ts') || f.name.endsWith('.js') ||
-         f.name === 'README.md' || f.name.includes('package.json')))
-      .slice(0, 30);
+      .filter((f: any) => {
+        const name = f.name.toLowerCase();
+        return (
+          name.endsWith('.tsx') ||
+          name.endsWith('.ts') ||
+          name.endsWith('.js') ||
+          name.endsWith('.jsx') ||
+          name.endsWith('.env.example') ||
+          name === 'readme.md' ||
+          name === 'package.json' ||
+          name === 'next.config.ts' ||
+          name === 'next.config.js' ||
+          name === 'middleware.ts' ||
+          name === 'middleware.js'
+        );
+      })
+      .filter((f: any) => {
+        const name = f.name.toLowerCase();
+        return (
+          !name.includes('.test.') &&
+          !name.includes('.spec.') &&
+          !name.includes('.d.ts') &&
+          !name.includes('package-lock') &&
+          !name.includes('yarn.lock')
+        );
+      })
+      .sort((a: any, b: any) => {
+        // Prioritize security-sensitive files first
+        const priority = ['middleware', 'auth', 'api', 'route', 'supabase', 'config', 'env'];
+        const aScore = priority.findIndex(p => a.path.toLowerCase().includes(p));
+        const bScore = priority.findIndex(p => b.path.toLowerCase().includes(p));
+        return (aScore === -1 ? 99 : aScore) - (bScore === -1 ? 99 : bScore);
+      })
+      .slice(0, 40);
 
     let codeContext = '';
     for (const file of priorityFiles) {
@@ -56,7 +105,7 @@ export async function POST(request: NextRequest) {
         const res = await fetch(file.download_url, { headers: { Authorization: `Bearer ${token}` } });
         if (res.ok) {
           let content = await res.text();
-          if (content.length > 11500) content = content.slice(0, 11500) + "\n// ... truncated";
+          if (content.length > 8000) content = content.slice(0, 8000) + "\n// ... truncated";
           codeContext += `\n\n=== ${file.path} ===\n${content}\n`;
         }
       } catch (_) {}
@@ -75,7 +124,9 @@ You do not give generic advice. Every single point you make references exact lin
 
 You never say things like "add comments", "use useCallback", or "add error handling" unless you can point to the specific place in the code where it is missing and explain the exact production consequence.
 
-If a section has no real issues, skip it or say the code is clean there. No padding, no obvious advice, no fluff. A senior engineer reading this should learn something they didn't already know.`
+If a section has no real issues, skip it or say the code is clean there. No padding, no obvious advice, no fluff. A senior engineer reading this should learn something they didn't already know.
+
+When you find issues, you explain the full exploit chain — not just "this is a risk" but exactly how it would be exploited and what the blast radius is.`
         },
         {
           role: "user",
@@ -100,7 +151,7 @@ For each issue found:
   **File + pattern:** Exact file and the specific code pattern (e.g. \`middleware.ts — supabase.auth.getUser() called outside try/catch, will throw on network failure\`)
   **Attack vector:** How would an attacker or production outage exploit this right now, concretely?
   **Production impact:** What specifically breaks, gets exposed, or goes down?
-  **Fix:** The exact code change needed — not "add error handling" but the actual implementation pattern.
+  **Fix:** The exact code change needed — not "add error handling" but the actual implementation with code.
 
 **Architecture & Design Issues**
 Same format — file + exact pattern, not generalities. Skip entirely if no real issues found.
@@ -169,17 +220,17 @@ Reason: [one sentence naming the specific files and changes driving that estimat
       fix: topFixRecommendationMatch?.[1]?.trim() || 'See recommendations in the Analysis tab',
     };
 
-    // Files scanned with status
+    // Files scanned with status — smarter matching
     const scannedFiles = priorityFiles.map((f: any) => {
       const name = f.path;
       const lowerAnalysis = analysis.toLowerCase();
       const lowerName = name.toLowerCase();
       const nameIndex = lowerAnalysis.indexOf(lowerName);
-      const isCritical = nameIndex !== -1 &&
-        (lowerAnalysis.slice(Math.max(0, nameIndex - 100), nameIndex + 200).includes('critical'));
-      const isReview = nameIndex !== -1 &&
-        (lowerAnalysis.slice(Math.max(0, nameIndex - 100), nameIndex + 200).includes('high') ||
-         lowerAnalysis.slice(Math.max(0, nameIndex - 100), nameIndex + 200).includes('risk'));
+      const surroundingText = nameIndex !== -1
+        ? lowerAnalysis.slice(Math.max(0, nameIndex - 150), nameIndex + 300)
+        : '';
+      const isCritical = surroundingText.includes('critical');
+      const isReview = surroundingText.includes('high') || surroundingText.includes('risk') || surroundingText.includes('vulnerability');
       return {
         path: name,
         status: isCritical ? 'Critical' : isReview ? 'Review' : 'Clean',
