@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { createServerClient } from '@supabase/ssr';
 
-// In-memory rate limiting (fine for MVP)
 const rateLimit = new Map<string, { count: number; resetTime: number }>();
 
 const anthropic = new Anthropic({
@@ -42,13 +41,12 @@ export async function POST(request: NextRequest) {
 
     const { repoFullName, repoName, mode = 'normal' } = await request.json();
 
-    // === TOKEN HANDLING (with refresh support) ===
     let token = request.headers.get('authorization')?.replace('Bearer ', '');
 
     if (!token) {
       const { data: profile } = await supabase
         .from('profile')
-        .select('github_token, github_refresh_token')
+        .select('github_token')
         .eq('user_id', user.id)
         .single();
       token = profile?.github_token || null;
@@ -58,11 +56,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "GitHub token missing. Please reconnect in Profile." }, { status: 401 });
     }
 
-    // === IMPROVED FILE FETCHING ===
-    const importantDirs = [
-      '', 'app', 'lib', 'components', 'src', 'utils', 'hooks', 'api', 'config'
-    ];
-
+    // File fetching
+    const importantDirs = ['', 'app', 'lib', 'components', 'src', 'utils', 'hooks', 'api', 'config'];
     let allFiles: any[] = [];
 
     for (const dir of importantDirs) {
@@ -83,30 +78,24 @@ export async function POST(request: NextRequest) {
       } catch (_) {}
     }
 
-    // Prioritize highest value files
     const priorityFiles = allFiles
       .filter((f: any) => f.type === 'file' && 
-        (f.name.endsWith('.tsx') || 
-         f.name.endsWith('.ts') || 
-         f.name.endsWith('.js') || 
-         f.name === 'README.md' ||
+        (f.name.endsWith('.tsx') || f.name.endsWith('.ts') || 
+         f.name.endsWith('.js') || f.name === 'README.md' || 
          f.name.includes('package.json')))
       .sort((a: any, b: any) => {
         const score = (name: string) => {
           if (name.includes('route.ts') || name.includes('api/')) return 500;
           if (name.includes('page.tsx')) return 400;
           if (name.includes('supabase')) return 350;
-          if (name.includes('dashboard')) return 300;
           if (name === 'README.md') return 250;
-          if (name.includes('layout')) return 200;
           return 50;
         };
         return score(b.name) - score(a.name);
       })
-      .slice(0, 35); // Reduced to avoid token limits
+      .slice(0, 35);
 
     let codeContext = '';
-
     for (const file of priorityFiles) {
       try {
         const contentRes = await fetch(file.download_url, {
@@ -120,12 +109,11 @@ export async function POST(request: NextRequest) {
       } catch (_) {}
     }
 
-    // === STRONGER PROMPTS ===
     let analysisText = '';
 
     if (mode === '10star') {
       const message = await anthropic.messages.create({
-        model: "claude-sonnet-4-20250514",
+        model: "claude-sonnet-4-6",
         max_tokens: 4500,
         temperature: 0.4,
         messages: [{
@@ -134,21 +122,17 @@ export async function POST(request: NextRequest) {
 
 Project: ${repoFullName}
 
-Here is the most important code from the repository:
+Here is the most important code:
 ${codeContext}
 
-Write a **high-signal, senior-level** code review that would impress a staff engineer.
-
-Use clear ## markdown sections. Be opinionated, specific, and actionable.
-Reference exact files and suggest concrete improvements with code examples where helpful.`
+Write a high-signal, senior-level code review. Use clear ## markdown sections. Be opinionated, specific, and actionable.`
         }]
       });
       analysisText = message.content[0].type === 'text' ? message.content[0].text : "No response";
 
     } else {
-      // Normal Analyze - this is the one we care about most
       const message = await anthropic.messages.create({
-        model: "claude-sonnet-4-20250514",
+        model: "claude-sonnet-4-6",
         max_tokens: 2800,
         temperature: 0.3,
         messages: [{
@@ -160,27 +144,27 @@ Project: ${repoFullName}
 Code context:
 ${codeContext}
 
-Write a professional, high-value code review using **exactly** these sections with ## headers:
+Write a professional code review using exactly these sections with ## headers:
 
 ## Executive Summary
-2-3 sentences about what the project is and its overall quality.
+2-3 sentences about the project and its overall quality.
 
 ## Strengths
 What is done well.
 
 ## Code Quality & Architecture
-Rating (X/10) and detailed explanation. Talk about structure, patterns, maintainability.
+Rating (X/10) and detailed explanation.
 
 ## Security & Performance
 Any concerns or wins.
 
 ## Key Issues & Refactoring Opportunities
-Prioritized list. For each item: file + specific suggestion + why it matters.
+Prioritized list with file references.
 
 ## Quick Wins
-Small, high-impact changes that would improve the project immediately.
+Small high-impact changes.
 
-Be concise but insightful. Use markdown tables when helpful. Never hallucinate files.`
+Be concise but insightful.`
         }]
       });
       analysisText = message.content[0].type === 'text' ? message.content[0].text : "No response";
