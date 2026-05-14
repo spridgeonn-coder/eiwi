@@ -114,10 +114,33 @@ One paragraph with overall maturity and biggest concerns.
 
     const analysis = completion.choices[0]?.message?.content || "No analysis generated.";
 
+    // Pull quality score out of the text (looks for "Code Quality — 7/10" pattern)
+    const qualityMatch = analysis.match(/Code Quality[^\d]*(\d+)\s*\/\s*10/i);
+    const qualityScore = qualityMatch ? Math.round(parseInt(qualityMatch[1]) * 10) : 75;
+
+    // Count critical/high issues for blast radius
+    const criticalCount = (analysis.match(/\*\*Risk level: Critical\*\*/gi) || []).length;
+    const highCount = (analysis.match(/\*\*Risk level: High\*\*/gi) || []).length;
+    const blastRadius = Math.min(99, (criticalCount * 15) + (highCount * 8) + 20);
+
+    // Security score (more security-related issues = lower score)
+    const securityIssues = (analysis.match(/security|auth|token|exposure/gi) || []).length;
+    const security = Math.max(10, 100 - (securityIssues * 3));
+
+    // Performance score (more performance-related issues = lower score)
+    const perfIssues = (analysis.match(/performance|slow|latency|optimize/gi) || []).length;
+    const performance = Math.max(10, 100 - (perfIssues * 4));
+
     return NextResponse.json({
       success: true,
       repo: repoName,
       analysis,
+      structured: {
+        qualityScore,
+        blastRadius,
+        security,
+        performance,
+      }
     });
 
   } catch (error: any) {
