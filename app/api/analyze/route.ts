@@ -13,174 +13,118 @@ export async function POST(request: NextRequest) {
     const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      {
-        cookies: {
-          getAll: () => request.cookies.getAll(),
-          setAll: () => {},
-        },
-      }
+      { cookies: { getAll: () => request.cookies.getAll(), setAll: () => {} } }
     );
 
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) {
-      return NextResponse.json({ error: "Unauthorized — please log in" }, { status: 401 });
+      return NextResponse.json({ error: "Please log in again" }, { status: 401 });
     }
 
-    // Rate limiting
+    // Rate limit
     const userId = user.id;
     const now = Date.now();
     let record = rateLimit.get(userId) || { count: 0, resetTime: now + 60000 };
-    if (now > record.resetTime) {
-      record = { count: 0, resetTime: now + 60000 };
+    if (now > record.resetTime) record = { count: 0, resetTime: now + 60000 };
+    if (record.count >= 5) {
+      return NextResponse.json({ error: "Too many requests. Wait 1 minute." }, { status: 429 });
     }
-    if (record.count >= 8) {
-      return NextResponse.json({ error: "Rate limit exceeded. Try again in a minute." }, { status: 429 });
-    }
-    record.count += 1;
+    record.count++;
     rateLimit.set(userId, record);
 
     const { repoFullName, repoName, mode = 'normal' } = await request.json();
 
+    // Get token
     let token = request.headers.get('authorization')?.replace('Bearer ', '');
-
     if (!token) {
       const { data: profile } = await supabase
         .from('profile')
         .select('github_token')
         .eq('user_id', user.id)
         .single();
-      token = profile?.github_token || null;
+      token = profile?.github_token;
     }
 
     if (!token) {
-      return NextResponse.json({ error: "GitHub token missing. Please reconnect in Profile." }, { status: 401 });
+      return NextResponse.json({ error: "GitHub token missing. Reconnect in Profile." }, { status: 401 });
     }
 
-    // File fetching
-    const importantDirs = ['', 'app', 'lib', 'components', 'src', 'utils', 'hooks', 'api', 'config'];
+    // === FILE FETCHING ===
+    const importantDirs = ['', 'app', 'lib', 'components', 'src'];
     let allFiles: any[] = [];
 
     for (const dir of importantDirs) {
       try {
-        const url = dir
+        const url = dir 
           ? `https://api.github.com/repos/${repoFullName}/contents/${dir}`
           : `https://api.github.com/repos/${repoFullName}/contents`;
-
-        const res = await fetch(url, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-
+        
+        const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
         if (res.ok) {
           const data = await res.json();
-          const files = Array.isArray(data) ? data : [data];
-          allFiles = [...allFiles, ...files];
+          allFiles = [...allFiles, ...(Array.isArray(data) ? data : [data])];
         }
       } catch (_) {}
     }
 
     const priorityFiles = allFiles
       .filter((f: any) => f.type === 'file' && 
-        (f.name.endsWith('.tsx') || f.name.endsWith('.ts') || 
-         f.name.endsWith('.js') || f.name === 'README.md' || 
-         f.name.includes('package.json')))
-      .sort((a: any, b: any) => {
-        const score = (name: string) => {
-          if (name.includes('route.ts') || name.includes('api/')) return 500;
-          if (name.includes('page.tsx')) return 400;
-          if (name.includes('supabase')) return 350;
-          if (name === 'README.md') return 250;
-          return 50;
-        };
-        return score(b.name) - score(a.name);
-      })
-      .slice(0, 35);
+        (f.name.endsWith('.ts') || f.name.endsWith('.tsx') || f.name.endsWith('.js') || f.name === 'README.md'))
+      .slice(0, 25);
 
     let codeContext = '';
     for (const file of priorityFiles) {
       try {
-        const contentRes = await fetch(file.download_url, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-        if (contentRes.ok) {
-          let content = await contentRes.text();
-          if (content.length > 15000) content = content.substring(0, 15000) + "\n// ... (truncated)";
+        const res = await fetch(file.download_url, { headers: { Authorization: `Bearer ${token}` } });
+        if (res.ok) {
+          let content = await res.text();
+          if (content.length > 12000) content = content.slice(0, 12000) + "\n// ... truncated";
           codeContext += `\n\n=== ${file.path} ===\n${content}\n`;
         }
       } catch (_) {}
     }
 
+    if (!codeContext) {
+      return NextResponse.json({ error: "Could not fetch any files from the repo." }, { status: 400 });
+    }
+
+    // === AI CALL ===
     let analysisText = '';
+
+    const model = "claude-sonnet-4-6";
 
     if (mode === '10star') {
       const message = await anthropic.messages.create({
-        model: "claude-sonnet-4-6",
-        max_tokens: 4500,
+        model,
+        max_tokens: 4000,
         temperature: 0.4,
-        messages: [{
-          role: "user",
-          content: `You are a Principal Engineer at a top-tier company.
-
-Project: ${repoFullName}
-
-Here is the most important code:
-${codeContext}
-
-Write a high-signal, senior-level code review. Use clear ## markdown sections. Be opinionated, specific, and actionable.`
-        }]
+        messages: [{ role: "user", content: `Project: ${repoFullName}\n\nCode:\n${codeContext}\n\nGive a high-quality senior engineer review.` }]
       });
-      analysisText = message.content[0].type === 'text' ? message.content[0].text : "No response";
-
+      analysisText = message.content[0]?.type === 'text' ? message.content[0].text : '';
     } else {
       const message = await anthropic.messages.create({
-        model: "claude-sonnet-4-6",
-        max_tokens: 2800,
+        model,
+        max_tokens: 2500,
         temperature: 0.3,
-        messages: [{
-          role: "user",
-          content: `You are a senior/full-stack engineer reviewing code for another mid-to-senior developer.
-
-Project: ${repoFullName}
-
-Code context:
-${codeContext}
-
-Write a professional code review using exactly these sections with ## headers:
-
-## Executive Summary
-2-3 sentences about the project and its overall quality.
-
-## Strengths
-What is done well.
-
-## Code Quality & Architecture
-Rating (X/10) and detailed explanation.
-
-## Security & Performance
-Any concerns or wins.
-
-## Key Issues & Refactoring Opportunities
-Prioritized list with file references.
-
-## Quick Wins
-Small high-impact changes.
-
-Be concise but insightful.`
+        messages: [{ 
+          role: "user", 
+          content: `You are a senior engineer. Review this project:\n\n${codeContext}\n\nUse these sections: ## Executive Summary, ## Strengths, ## Code Quality, ## Security & Performance, ## Key Issues, ## Quick Wins.` 
         }]
       });
-      analysisText = message.content[0].type === 'text' ? message.content[0].text : "No response";
+      analysisText = message.content[0]?.type === 'text' ? message.content[0].text : '';
     }
 
     return NextResponse.json({
       success: true,
       repo: repoName,
-      analysis: analysisText,
+      analysis: analysisText || "Analysis completed but returned empty.",
       mode,
     });
 
   } catch (error: any) {
-    console.error('[analyze]', error);
+    console.error('Analyze Error:', error);
     return NextResponse.json({ 
-      error: error.message || "Analysis failed. Please try again." 
+      error: error.message || "Something went wrong on the server." 
     }, { status: 500 });
   }
 }
