@@ -70,26 +70,24 @@ export default function Dashboard() {
   const [selectedRepo, setSelectedRepo] = useState<any>(null);
   const [activeTab, setActiveTab] = useState<'overview' | 'analysis' | 'issues'>('overview');
 
-  const stats = {
+  // ✅ Stats now live in state so they can be updated after analysis
+  const [stats, setStats] = useState({
     quality: 85,
     blastRadius: 87, blastRange: '310 m 624-32',
     securityMm: 49,  securityRange: '310 m 225-90',
     performanceMm: 53, performanceRange: '310 m 224-96',
     securityMm2: 47, securityRange2: '349 m 676-95',
-  };
+  });
 
-  // ── Step 1: get user + resolve GitHub token ──────────────────────────────
   useEffect(() => {
     const init = async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) { window.location.href = '/login'; return; }
       setUser(user);
 
-      // Try the live session token first (works right after OAuth redirect)
       const { data: { session } } = await supabase.auth.getSession();
       let token: string | null = session?.provider_token ?? null;
 
-      // Fall back to the token we saved in the profile table at login
       if (!token) {
         const { data: profile } = await supabase
           .from('profile')
@@ -100,7 +98,6 @@ export default function Dashboard() {
       }
 
       if (!token) {
-        // No token anywhere — ask user to reconnect
         setTokenError(true);
         setLoadingRepos(false);
         return;
@@ -112,7 +109,6 @@ export default function Dashboard() {
     init();
   }, []);
 
-  // ── Step 2: fetch repos once we have a token ─────────────────────────────
   useEffect(() => {
     if (!githubToken) return;
     fetchRepos(githubToken);
@@ -151,6 +147,17 @@ export default function Dashboard() {
       const data = await res.json();
       if (data.error) throw new Error(data.error);
       setResults(data);
+
+      // ✅ Update the stats cards with real numbers from the analysis
+      if (data.structured) {
+        setStats(prev => ({
+          ...prev,
+          quality: data.structured.qualityScore ?? prev.quality,
+          blastRadius: data.structured.blastRadius ?? prev.blastRadius,
+          securityMm: data.structured.security ?? prev.securityMm,
+          performanceMm: data.structured.performance ?? prev.performanceMm,
+        }));
+      }
     } catch (error: any) {
       alert("Analysis failed: " + error.message);
     }
@@ -162,15 +169,11 @@ export default function Dashboard() {
     || user?.email?.split('@')[0]
     || 'there';
 
-  // ── Sidebar state label ───────────────────────────────────────────────────
   const sidebarContent = () => {
     if (tokenError) return (
       <div className="px-2 py-4">
         <p className="text-red-400 text-sm mb-3">⚠️ GitHub token expired.</p>
-        <a
-          href="/profile"
-          className="text-xs text-violet-400 hover:text-violet-300 underline"
-        >
+        <a href="/profile" className="text-xs text-violet-400 hover:text-violet-300 underline">
           Reconnect GitHub in Profile →
         </a>
       </div>
@@ -219,7 +222,6 @@ export default function Dashboard() {
   return (
     <div className="min-h-screen text-white" style={{ background: '#0b0b14' }}>
 
-      {/* Nav */}
       <nav className="border-b border-white/[0.07] bg-black/70 backdrop-blur-xl sticky top-0 z-50">
         <div className="max-w-screen-2xl mx-auto px-8 py-4 flex items-center gap-10">
           <div className="flex items-center gap-2.5 mr-4">
@@ -266,16 +268,13 @@ export default function Dashboard() {
 
       <div className="max-w-screen-2xl mx-auto px-8 py-8 flex gap-6">
 
-        {/* Sidebar */}
         <div className="w-72 flex-shrink-0">
           <h2 className="text-xs font-medium text-zinc-500 mb-4 tracking-widest uppercase">Repository</h2>
           <div className="space-y-2">{sidebarContent()}</div>
         </div>
 
-        {/* Main */}
         <div className="flex-1 min-w-0">
 
-          {/* OVERVIEW */}
           {activeTab === 'overview' && (
             <div>
               <div className="mb-8">
@@ -347,7 +346,6 @@ export default function Dashboard() {
             </div>
           )}
 
-          {/* ANALYSIS */}
           {activeTab === 'analysis' && (
             <div>
               <div className="mb-8">
@@ -378,7 +376,6 @@ export default function Dashboard() {
             </div>
           )}
 
-          {/* ISSUES */}
           {activeTab === 'issues' && (
             <div>
               <div className="mb-8">
