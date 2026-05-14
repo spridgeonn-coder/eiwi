@@ -70,7 +70,6 @@ export default function Dashboard() {
   const [selectedRepo, setSelectedRepo] = useState<any>(null);
   const [activeTab, setActiveTab] = useState<'overview' | 'analysis' | 'issues'>('overview');
 
-  // ✅ Stats now live in state so they can be updated after analysis
   const [stats, setStats] = useState({
     quality: 85,
     blastRadius: 87, blastRange: '310 m 624-32',
@@ -148,7 +147,6 @@ export default function Dashboard() {
       if (data.error) throw new Error(data.error);
       setResults(data);
 
-      // ✅ Update the stats cards with real numbers from the analysis
       if (data.structured) {
         setStats(prev => ({
           ...prev,
@@ -168,6 +166,13 @@ export default function Dashboard() {
     || user?.user_metadata?.full_name?.split(' ')[0]
     || user?.email?.split('@')[0]
     || 'there';
+
+  const getColor = (score: number, invert = false) => {
+    const v = invert ? 100 - score : score;
+    if (v >= 75) return { text: '#4ade80', bg: 'rgba(74,222,128,0.08)', border: 'rgba(74,222,128,0.25)', label: 'Good' };
+    if (v >= 45) return { text: '#fb923c', bg: 'rgba(251,146,60,0.08)', border: 'rgba(251,146,60,0.25)', label: 'Moderate' };
+    return { text: '#f87171', bg: 'rgba(248,113,113,0.08)', border: 'rgba(248,113,113,0.25)', label: 'Critical' };
+  };
 
   const sidebarContent = () => {
     if (tokenError) return (
@@ -218,6 +223,37 @@ export default function Dashboard() {
       </div>
     ));
   };
+
+  const statCards = [
+    {
+      badge: 'Blast Radius',
+      value: stats.blastRadius,
+      unit: 'files at risk',
+      sub: 'How many files could be affected by a breaking change',
+      color: getColor(stats.blastRadius, true),
+    },
+    {
+      badge: 'Security',
+      value: stats.securityMm,
+      unit: '/ 100',
+      sub: 'Exposure risk from auth, tokens & environment variables',
+      color: getColor(stats.securityMm),
+    },
+    {
+      badge: 'Performance',
+      value: stats.performanceMm,
+      unit: '/ 100',
+      sub: 'Estimated runtime efficiency and load time impact',
+      color: getColor(stats.performanceMm),
+    },
+    {
+      badge: 'Code Quality',
+      value: stats.quality,
+      unit: '/ 100',
+      sub: 'Overall code structure, readability and maintainability',
+      color: getColor(stats.quality),
+    },
+  ];
 
   return (
     <div className="min-h-screen text-white" style={{ background: '#0b0b14' }}>
@@ -281,14 +317,21 @@ export default function Dashboard() {
                 <h1 className="text-5xl font-bold tracking-tighter">Welcome back, {displayName}</h1>
                 <p className="text-zinc-500 mt-2 text-sm">Your AI Code Intelligence Platform</p>
               </div>
+
               <div className="grid grid-cols-12 gap-4">
-                <div className="col-span-12 lg:col-span-5 rounded-3xl p-8 flex flex-col" style={{ background: 'linear-gradient(145deg,#2d1b69 0%,#1a0f3c 55%,#0f0820 100%)', border: '1px solid rgba(139,92,246,0.3)', minHeight: '230px' }}>
+
+                {/* Code Quality Gauge */}
+                <div className="col-span-12 lg:col-span-5 rounded-3xl p-8 flex flex-col"
+                  style={{ background: 'linear-gradient(145deg,#2d1b69 0%,#1a0f3c 55%,#0f0820 100%)', border: '1px solid rgba(139,92,246,0.3)', minHeight: '230px' }}>
                   <p className="text-xs uppercase tracking-widest text-violet-300/60 font-medium mb-6">Code Quality Score</p>
                   <div className="flex items-center justify-center flex-1">
                     <CircularGauge value={stats.quality} />
                   </div>
                 </div>
-                <div className="col-span-12 lg:col-span-7 rounded-3xl p-8 flex flex-col justify-between" style={{ background: '#111119', border: '1px solid rgba(255,255,255,0.06)', minHeight: '230px' }}>
+
+                {/* Summary Analysis */}
+                <div className="col-span-12 lg:col-span-7 rounded-3xl p-8 flex flex-col justify-between"
+                  style={{ background: '#111119', border: '1px solid rgba(255,255,255,0.06)', minHeight: '230px' }}>
                   <div>
                     <h3 className="text-base font-semibold text-white mb-3">Summary Analysis</h3>
                     {results?.analysis ? (
@@ -308,25 +351,29 @@ export default function Dashboard() {
                   )}
                 </div>
 
-                {[
-                  { badge: 'Blast Radius', value: stats.blastRadius, sub: stats.blastRange, icon: true,  bg: '#16102a', border: 'rgba(168,85,247,0.2)' },
-                  { badge: 'Security',     value: stats.securityMm,  sub: stats.securityRange, icon: false, bg: '#111119', border: 'rgba(255,255,255,0.06)' },
-                  { badge: 'Performance', value: stats.performanceMm, sub: stats.performanceRange, icon: true, bg: '#16102a', border: 'rgba(168,85,247,0.2)' },
-                  { badge: 'Security',     value: stats.securityMm2, sub: stats.securityRange2, icon: false, bg: '#111119', border: 'rgba(255,255,255,0.06)' },
-                ].map((card, i) => (
-                  <div key={i} className="col-span-6 lg:col-span-3 rounded-3xl p-6 flex flex-col justify-between" style={{ background: card.bg, border: `1px solid ${card.border}`, minHeight: '155px' }}>
+                {/* Stat Cards */}
+                {statCards.map((card, i) => (
+                  <div key={i} className="col-span-6 lg:col-span-3 rounded-3xl p-6 flex flex-col justify-between"
+                    style={{ background: card.color.bg, border: `1px solid ${card.color.border}`, minHeight: '155px' }}>
                     <div className="flex items-center justify-between">
-                      <span className="text-xs bg-white/[0.07] text-zinc-300 px-2.5 py-1 rounded-lg font-medium">{card.badge}</span>
-                      {card.icon && <div className="w-7 h-7 bg-violet-600/80 rounded-xl flex items-center justify-center"><Zap className="w-3.5 h-3.5 text-white" /></div>}
+                      <span className="text-xs bg-white/[0.06] text-zinc-300 px-2.5 py-1 rounded-lg font-medium">{card.badge}</span>
+                      <span className="text-xs font-semibold px-2 py-0.5 rounded-md"
+                        style={{ color: card.color.text, background: 'rgba(0,0,0,0.3)' }}>
+                        {card.color.label}
+                      </span>
                     </div>
                     <div>
-                      <div className="text-4xl font-bold mt-2">{card.value}<span className="text-xl text-zinc-500">,mm</span></div>
-                      <div className="text-xs text-zinc-600 mt-1">{card.sub}</div>
+                      <div className="text-4xl font-bold mt-2" style={{ color: card.color.text }}>
+                        {card.value}<span className="text-base font-normal text-zinc-500 ml-1">{card.unit}</span>
+                      </div>
+                      <div className="text-xs text-zinc-500 mt-1 leading-relaxed">{card.sub}</div>
                     </div>
                   </div>
                 ))}
 
-                <div className="col-span-12 lg:col-span-6 rounded-3xl overflow-hidden" style={{ background: '#0d0d18', border: '1px solid rgba(255,255,255,0.06)' }}>
+                {/* Decorative code block */}
+                <div className="col-span-12 lg:col-span-6 rounded-3xl overflow-hidden"
+                  style={{ background: '#0d0d18', border: '1px solid rgba(255,255,255,0.06)' }}>
                   <div className="flex items-center gap-2 px-5 py-3 border-b border-white/[0.05]">
                     <div className="w-2.5 h-2.5 rounded-full bg-red-500/60" />
                     <div className="w-2.5 h-2.5 rounded-full bg-yellow-500/60" />
@@ -337,11 +384,14 @@ export default function Dashboard() {
                     {CODE_LINES.map((line, i) => (
                       <div key={i} className="flex gap-4">
                         <span className="text-zinc-700 select-none w-5 text-right flex-shrink-0">{i + 1}</span>
-                        <span className={line.includes('currcnig') ? 'text-violet-400' : line.includes('norplicg') ? 'text-cyan-400/80' : line.startsWith('  ') ? 'text-zinc-300' : 'text-zinc-600'}>{line || ' '}</span>
+                        <span className={line.includes('currcnig') ? 'text-violet-400' : line.includes('norplicg') ? 'text-cyan-400/80' : line.startsWith('  ') ? 'text-zinc-300' : 'text-zinc-600'}>
+                          {line || ' '}
+                        </span>
                       </div>
                     ))}
                   </div>
                 </div>
+
               </div>
             </div>
           )}
@@ -390,7 +440,8 @@ export default function Dashboard() {
                       .filter((l: string) => l.match(/^(\d+\.|[-*•])\s/) && l.length > 20)
                       .slice(0, 15)
                       .map((line: string, i: number) => (
-                        <div key={i} className="flex items-start gap-4 p-5 rounded-2xl" style={{ background: '#0d0d18', border: '1px solid rgba(255,255,255,0.05)' }}>
+                        <div key={i} className="flex items-start gap-4 p-5 rounded-2xl"
+                          style={{ background: '#0d0d18', border: '1px solid rgba(255,255,255,0.05)' }}>
                           <div className={`w-1.5 h-1.5 rounded-full mt-2 flex-shrink-0 ${i < 3 ? 'bg-red-500' : i < 7 ? 'bg-amber-500' : 'bg-zinc-600'}`} />
                           <p className="text-sm text-zinc-300 leading-relaxed">{line.replace(/^(\d+\.|[-*•])\s/, '')}</p>
                         </div>
@@ -408,6 +459,7 @@ export default function Dashboard() {
               </div>
             </div>
           )}
+
         </div>
       </div>
     </div>
