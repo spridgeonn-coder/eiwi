@@ -57,7 +57,7 @@ export default function Dashboard() {
   const [activeTab, setActiveTab] = useState<'overview' | 'analysis' | 'issues'>('overview');
   const [tokenError, setTokenError] = useState(false);
 
-  // Default fallback stats
+  // Dynamic stats updated by AI
   const [stats, setStats] = useState({
     quality: 85,
     blastRadius: 87,
@@ -85,19 +85,13 @@ export default function Dashboard() {
       token = profile?.github_token;
     }
 
-    if (!token) {
-      setTokenError(true);
-      setLoadingRepos(false);
-      return;
-    }
-
-    try {
-      const res = await fetch('https://api.github.com/user/repos?sort=updated&per_page=30', {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      if (res.ok) setRepos(await res.json());
-    } catch (e) {
-      console.error(e);
+    if (token) {
+      try {
+        const res = await fetch('https://api.github.com/user/repos?sort=updated&per_page=30', {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        if (res.ok) setRepos(await res.json());
+      } catch (e) {}
     }
     setLoadingRepos(false);
   };
@@ -124,7 +118,7 @@ export default function Dashboard() {
 
       setResults(data);
 
-      // Update stats from AI structured data
+      // Update dashboard stats from AI
       if (data.structured) {
         setStats({
           quality: data.structured.qualityScore || 85,
@@ -143,7 +137,7 @@ export default function Dashboard() {
 
   return (
     <div className="min-h-screen text-white" style={{ background: '#0b0b14' }}>
-      {/* Navigation - Unchanged */}
+      {/* Navigation */}
       <nav className="border-b border-white/[0.07] bg-black/70 backdrop-blur-xl sticky top-0 z-50">
         <div className="max-w-screen-2xl mx-auto px-8 py-4 flex items-center gap-10">
           <div className="flex items-center gap-2.5 mr-4">
@@ -183,7 +177,7 @@ export default function Dashboard() {
       </nav>
 
       <div className="max-w-screen-2xl mx-auto px-8 py-8 flex gap-6">
-        {/* Sidebar - Repositories */}
+        {/* Sidebar */}
         <div className="w-72 flex-shrink-0">
           <h2 className="text-xs font-medium text-zinc-500 mb-4 tracking-widest uppercase">REPOSITORY</h2>
           <div className="space-y-2">
@@ -197,18 +191,14 @@ export default function Dashboard() {
                   key={repo.id}
                   onClick={() => analyzeRepo(repo)}
                   className={`p-4 rounded-2xl border transition-all cursor-pointer ${
-                    selectedRepo?.id === repo.id
-                      ? 'border-violet-500/50 bg-violet-950/25'
-                      : 'border-white/[0.07] hover:border-white/20 bg-white/[0.02] hover:bg-white/[0.04]'
+                    selectedRepo?.id === repo.id ? 'border-violet-500/50 bg-violet-950/25' : 'border-white/[0.07] hover:border-white/20 bg-white/[0.02] hover:bg-white/[0.04]'
                   }`}
                 >
                   <div className="flex items-center gap-3">
                     <div className="w-8 h-8 bg-gradient-to-br from-violet-600 to-purple-800 rounded-xl flex items-center justify-center text-[10px] font-bold">AI</div>
                     <div className="flex-1 min-w-0">
                       <p className="font-medium text-sm truncate">{repo.name}</p>
-                      <p className="text-xs text-zinc-600 mt-0.5">
-                        {analyzingRepo === repo.full_name ? 'Analyzing...' : 'Click to analyze'}
-                      </p>
+                      <p className="text-xs text-zinc-600 mt-0.5">Click to analyze</p>
                     </div>
                   </div>
                 </div>
@@ -236,10 +226,62 @@ export default function Dashboard() {
                   </div>
                 </div>
 
-                {/* Other cards remain exactly as before */}
-                {/* Summary Analysis, Blast Radius, Security, Performance cards... */}
-                {/* (Copy your previous card JSX here if needed) */}
+                {/* Summary Analysis */}
+                <div className="col-span-12 lg:col-span-7 rounded-3xl p-8 flex flex-col justify-between" 
+                     style={{ background: '#111119', border: '1px solid rgba(255,255,255,0.06)', minHeight: '230px' }}>
+                  <div>
+                    <h3 className="text-base font-semibold text-white mb-3">Summary Analysis</h3>
+                    {results?.analysis ? (
+                      <p className="text-zinc-400 text-sm leading-relaxed line-clamp-6">
+                        {results.analysis.split('\n').slice(0, 3).join(' ')}
+                      </p>
+                    ) : (
+                      <p className="text-zinc-500 text-sm leading-relaxed">
+                        Select a repository from the left to run an AI analysis.
+                      </p>
+                    )}
+                  </div>
+                </div>
 
+                {/* Blast Radius */}
+                <div className="col-span-6 lg:col-span-3 rounded-3xl p-6 flex flex-col justify-between" 
+                     style={{ background: '#16102a', border: '1px solid rgba(168,85,247,0.2)', minHeight: '155px' }}>
+                  <span className="text-xs bg-white/[0.07] text-zinc-300 px-2.5 py-1 rounded-lg font-medium">Blast Radius</span>
+                  <div>
+                    <div className="text-4xl font-bold mt-2">{stats.blastRadius}</div>
+                    <div className="text-xs text-zinc-600 mt-1">Critical Issues</div>
+                  </div>
+                </div>
+
+                {/* Security */}
+                <div className="col-span-6 lg:col-span-3 rounded-3xl p-6 flex flex-col justify-between" 
+                     style={{ background: '#111119', border: '1px solid rgba(255,255,255,0.06)', minHeight: '155px' }}>
+                  <span className="text-xs bg-white/[0.07] text-zinc-300 px-2.5 py-1 rounded-lg font-medium">Security</span>
+                  <div>
+                    <div className="text-4xl font-bold mt-2">{stats.security}</div>
+                    <div className="text-xs text-zinc-600 mt-1">mm exposure</div>
+                  </div>
+                </div>
+
+                {/* Performance */}
+                <div className="col-span-6 lg:col-span-3 rounded-3xl p-6 flex flex-col justify-between" 
+                     style={{ background: '#16102a', border: '1px solid rgba(168,85,247,0.2)', minHeight: '155px' }}>
+                  <span className="text-xs bg-white/[0.07] text-zinc-300 px-2.5 py-1 rounded-lg font-medium">Performance</span>
+                  <div>
+                    <div className="text-4xl font-bold mt-2">{stats.performance}</div>
+                    <div className="text-xs text-zinc-600 mt-1">score</div>
+                  </div>
+                </div>
+
+                {/* Second Security */}
+                <div className="col-span-6 lg:col-span-3 rounded-3xl p-6 flex flex-col justify-between" 
+                     style={{ background: '#111119', border: '1px solid rgba(255,255,255,0.06)', minHeight: '155px' }}>
+                  <span className="text-xs bg-white/[0.07] text-zinc-300 px-2.5 py-1 rounded-lg font-medium">Security</span>
+                  <div>
+                    <div className="text-4xl font-bold mt-2">47</div>
+                    <div className="text-xs text-zinc-600 mt-1">mm exposure</div>
+                  </div>
+                </div>
               </div>
             </div>
           )}
@@ -259,31 +301,16 @@ export default function Dashboard() {
                   <div className="h-[500px] flex items-center justify-center text-center">
                     <div>
                       <div className="w-10 h-10 border-2 border-violet-500 border-t-transparent rounded-full animate-spin mx-auto mb-6" />
-                      <p className="text-xl text-white">Analyzing {selectedRepo?.name}...</p>
+                      <p className="text-xl">Analyzing {selectedRepo?.name}...</p>
                     </div>
                   </div>
                 ) : results ? (
                   <AnalysisRenderer content={results.analysis} />
                 ) : (
                   <div className="h-[500px] flex items-center justify-center text-center">
-                    <div>
-                      <div className="text-5xl mb-6 opacity-20">⚡</div>
-                      <p className="text-xl text-zinc-300">No analysis yet</p>
-                    </div>
+                    <p className="text-zinc-400">Select a repository on the left</p>
                   </div>
                 )}
-              </div>
-            </div>
-          )}
-
-          {activeTab === 'issues' && (
-            <div>
-              <div className="mb-8">
-                <h1 className="text-4xl font-bold tracking-tight">Issues</h1>
-                <p className="text-zinc-500 mt-1 text-sm">Critical findings from your latest analysis</p>
-              </div>
-              <div className="rounded-3xl p-8 min-h-[600px]" style={{ background: '#111119', border: '1px solid rgba(255,255,255,0.06)' }}>
-                {/* Your existing issues content */}
               </div>
             </div>
           )}
