@@ -1,17 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
-import Anthropic from '@anthropic-ai/sdk';
+import OpenAI from 'openai';
 import { createServerClient } from '@supabase/ssr';
 
-const rateLimit = new Map<string, { count: number; resetTime: number }>();
+export const maxDuration = 120;   // Important for Vercel
 
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY,
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
 });
 
 export async function POST(request: NextRequest) {
   try {
-    console.log("🚀 Analyze API started");
-
     const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -19,102 +17,64 @@ export async function POST(request: NextRequest) {
     );
 
     const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return NextResponse.json({ error: "Please log in" }, { status: 401 });
+    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    // Rate limit
-    const userId = user.id;
-    const now = Date.now();
-    let record = rateLimit.get(userId) || { count: 0, resetTime: now + 60000 };
-    if (now > record.resetTime) record = { count: 0, resetTime: now + 60000 };
-    if (record.count >= 5) return NextResponse.json({ error: "Too many requests. Wait 60 seconds." }, { status: 429 });
-    record.count++;
-    rateLimit.set(userId, record);
+    const { repoFullName, repoName } = await request.json();
 
-    const { repoFullName, repoName, mode = 'normal' } = await request.json();
-
-    // Get GitHub token
     let token = request.headers.get('authorization')?.replace('Bearer ', '');
     if (!token) {
       const { data: profile } = await supabase.from('profile').select('github_token').eq('user_id', user.id).single();
       token = profile?.github_token;
     }
-    if (!token) return NextResponse.json({ error: "GitHub token missing. Reconnect in Profile." }, { status: 401 });
+    if (!token) return NextResponse.json({ error: "GitHub token missing" }, { status: 401 });
 
-    // === FILE FETCHING (limited to avoid timeout) ===
-    const importantDirs = ['', 'app', 'lib', 'components'];
-    let allFiles: any[] = [];
-
-    for (const dir of importantDirs) {
-      try {
-        const url = dir ? `https://api.github.com/repos/${repoFullName}/contents/${dir}` : `https://api.github.com/repos/${repoFullName}/contents`;
-        const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
-        if (res.ok) {
-          const data = await res.json();
-          allFiles = [...allFiles, ...(Array.isArray(data) ? data : [data])];
-        }
-      } catch (_) {}
-    }
-
-    const priorityFiles = allFiles
-      .filter((f: any) => f.type === 'file' && (f.name.endsWith('.ts') || f.name.endsWith('.tsx') || f.name.endsWith('.js')))
-      .slice(0, 20); // Keep it small to avoid timeouts
-
-    let codeContext = '';
-    for (const file of priorityFiles) {
-      try {
-        const res = await fetch(file.download_url, { headers: { Authorization: `Bearer ${token}` } });
-        if (res.ok) {
-          let content = await res.text();
-          if (content.length > 8000) content = content.slice(0, 8000) + "\n// ... truncated";
-          codeContext += `\n\n=== ${file.path} ===\n${content}\n`;
-        }
-      } catch (_) {}
-    }
-
-    if (codeContext.length < 100) {
-      codeContext = "No code files found or could not access repository.";
-    }
-
-    // === AI ANALYSIS ===
-    let analysisText = "Analysis failed to generate content.";
-
+    // Simple file fetch (one main file to keep it fast)
+    let codeContext = "Could not fetch repository files.";
     try {
-      const model = "claude-sonnet-4-6";
-
-      if (mode === '10star') {
-        const message = await anthropic.messages.create({
-          model,
-          max_tokens: 3500,
-          temperature: 0.4,
-          messages: [{ role: "user", content: `Project: ${repoFullName}\n\nCode:\n${codeContext}\n\nGive a detailed senior-level review.` }]
-        });
-        analysisText = message.content[0]?.type === 'text' ? message.content[0].text : '';
-      } else {
-        const message = await anthropic.messages.create({
-          model,
-          max_tokens: 2200,
-          temperature: 0.3,
-          messages: [{ 
-            role: "user", 
-            content: `Review this project as a senior engineer:\n\n${codeContext}\n\nUse sections: ## Executive Summary, ## Strengths, ## Code Quality & Architecture, ## Security & Performance, ## Key Issues, ## Quick Wins.` 
-          }]
-        });
-        analysisText = message.content[0]?.type === 'text' ? message.content[0].text : '';
+      const res = await fetch(`https://api.github.com/repos/${repoFullName}/contents`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const files = await res.json();
+        const mainFile = files.find((f: any) => f.name.endsWith('.tsx') || f.name.endsWith('.ts') || f.name === 'README.md');
+        if (mainFile) {
+          const contentRes = await fetch(mainFile.download_url, { headers: { Authorization: `Bearer ${token}` } });
+          if (contentRes.ok) {
+            let content = await contentRes.text();
+            if (content.length > 10000) content = content.slice(0, 10000);
+            codeContext = `File: ${mainFile.path}\n\n${content}`;
+          }
+        }
       }
-    } catch (aiError: any) {
-      console.error("AI Error:", aiError);
-      analysisText = `AI call failed: ${aiError.message || 'Unknown error'}. This is likely a temporary issue with Anthropic.`;
-    }
+    } catch (_) {}
+
+    // Call OpenAI
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      temperature: 0.3,
+      max_tokens: 2000,
+      messages: [
+        {
+          role: "system",
+          content: "You are a senior software engineer giving clear, actionable code reviews."
+        },
+        {
+          role: "user",
+          content: `Review this repository: ${repoFullName}\n\nCode:\n${codeContext}\n\nUse these exact markdown sections:\n## Executive Summary\n## Strengths\n## Code Quality\n## Key Issues\n## Quick Wins`
+        }
+      ],
+    });
+
+    const analysis = completion.choices[0]?.message?.content || "No analysis generated.";
 
     return NextResponse.json({
       success: true,
       repo: repoName,
-      analysis: analysisText,
-      mode,
+      analysis,
     });
 
   } catch (error: any) {
-    console.error("❌ Full API Error:", error);
-    return NextResponse.json({ error: error.message || "Server error occurred" }, { status: 500 });
+    console.error("Analyze Error:", error);
+    return NextResponse.json({ error: error.message || "Failed to analyze" }, { status: 500 });
   }
 }

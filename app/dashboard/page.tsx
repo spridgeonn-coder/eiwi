@@ -4,7 +4,8 @@ import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { LogOut, RefreshCw, FileText, Copy, User, Sparkles } from "lucide-react";
+import { RefreshCw, FileText, Copy, User } from "lucide-react";
+import AnalysisRenderer from '@/components/AnalysisRenderer';
 
 export default function Dashboard() {
   const [user, setUser] = useState<any>(null);
@@ -51,7 +52,7 @@ export default function Dashboard() {
     setLoadingRepos(false);
   };
 
-  const analyzeRepo = async (repo: any, mode: 'normal' | '10star' = 'normal') => {
+  const analyzeRepo = async (repo: any) => {
     setAnalyzingRepo(repo.full_name);
     setResults(null);
 
@@ -68,11 +69,12 @@ export default function Dashboard() {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${session.provider_token}`
         },
-        body: JSON.stringify({ repoFullName: repo.full_name, repoName: repo.name, mode })
+        body: JSON.stringify({ repoFullName: repo.full_name, repoName: repo.name })
       });
 
       const data = await res.json();
       if (data.error) throw new Error(data.error);
+      
       setResults({ ...data, repoData: repo });
       setActiveSectionId("summary");
     } catch (error: any) {
@@ -81,23 +83,21 @@ export default function Dashboard() {
     setAnalyzingRepo(null);
   };
 
-  // Improved parsing
   const parseSections = (text: string) => {
     if (!text) return [];
-
-    const sections = text.split(/(?=^#{1,3}\s|^##\s|^###\s|^\*\*.*?\*\*)/gm)
-      .filter(s => s.trim().length > 10)
+    
+    const sections = text.split(/(?=^#{1,3}\s)/gm)
+      .filter(s => s.trim().length > 20)
       .map(section => {
-        let title = "Section";
-        const titleMatch = section.match(/^(#{1,3})\s+(.+?)(?=\n|$)/m) || 
-                          section.match(/^\*\*(.+?)\*\*/m);
-        if (titleMatch) title = titleMatch[2].trim();
-
+        const titleMatch = section.match(/^(#{1,3})\s+(.+?)(?=\n|$)/m);
+        const title = titleMatch ? titleMatch[2].trim() : "Analysis";
         const id = title.toLowerCase().replace(/[^a-z0-9]+/g, '-');
         return { id, title, content: section.trim() };
       });
 
-    return sections.length > 0 ? sections : [{ id: "summary", title: "Analysis", content: text }];
+    return sections.length > 0 
+      ? sections 
+      : [{ id: "summary", title: "Full Analysis", content: text }];
   };
 
   const parsedSections = results?.analysis ? parseSections(results.analysis) : [];
@@ -116,7 +116,6 @@ export default function Dashboard() {
 
   return (
     <div className="min-h-screen bg-zinc-950 text-white">
-      {/* Nav - unchanged */}
       <nav className="border-b border-zinc-800 bg-zinc-900/80 backdrop-blur-md sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-8 py-5 flex items-center justify-between">
           <div className="flex items-center gap-4">
@@ -148,32 +147,34 @@ export default function Dashboard() {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-          {/* Repos List - unchanged */}
+          {/* Repositories */}
           <div className="lg:col-span-5">
             <Card className="bg-zinc-900/70 border border-zinc-700">
               <CardHeader><CardTitle>Your Repositories</CardTitle></CardHeader>
               <CardContent className="pt-6 space-y-4">
-                {repos.map((repo) => (
-                  <div key={repo.id} className="p-5 bg-zinc-800 rounded-2xl flex justify-between items-center">
-                    <div>
-                      <p className="font-semibold">{repo.name}</p>
-                      <p className="text-sm text-zinc-400">{repo.description || 'No description'}</p>
-                    </div>
-                    <div className="flex gap-3">
-                      <Button onClick={() => analyzeRepo(repo, 'normal')} disabled={analyzingRepo === repo.full_name}>
-                        Analyze
+                {repos.length === 0 ? (
+                  <p className="text-zinc-500 py-8 text-center">Click Refresh Repositories to load your repos</p>
+                ) : (
+                  repos.map((repo: any) => (
+                    <div key={repo.id} className="p-5 bg-zinc-800 rounded-2xl flex justify-between items-center">
+                      <div className="min-w-0 flex-1">
+                        <p className="font-semibold">{repo.name}</p>
+                        <p className="text-sm text-zinc-400 line-clamp-2">{repo.description || 'No description'}</p>
+                      </div>
+                      <Button 
+                        onClick={() => analyzeRepo(repo)} 
+                        disabled={analyzingRepo === repo.full_name}
+                      >
+                        {analyzingRepo === repo.full_name ? 'Analyzing...' : 'Analyze'}
                       </Button>
-                      <Button onClick={() => analyzeRepo(repo, '10star')} disabled={analyzingRepo === repo.full_name} variant="outline">
-                        <Sparkles className="w-4 h-4 mr-1" />10 Stars
-                      </Button>
                     </div>
-                  </div>
-                ))}
+                  ))
+                )}
               </CardContent>
             </Card>
           </div>
 
-          {/* Clean Detailed Analysis */}
+          {/* Analysis Area */}
           <div className="lg:col-span-7">
             <Card className="bg-zinc-900/70 border border-zinc-700 overflow-hidden">
               <CardHeader className="border-b border-zinc-700 flex flex-row items-center justify-between">
@@ -182,36 +183,23 @@ export default function Dashboard() {
                   Detailed Analysis
                 </CardTitle>
 
-                <div className="flex gap-3">
-                  <Button 
-                    onClick={() => results?.repoData && analyzeRepo(results.repoData, '10star')}
-                    disabled={!results}
-                    className="bg-violet-600 hover:bg-violet-700 text-black font-medium"
-                  >
-                    <Sparkles className="w-4 h-4 mr-2" />
-                    10 Stars
-                  </Button>
-                  <Button onClick={copyAll} disabled={!results} variant="outline">
-                    <Copy className="w-4 h-4 mr-2" /> Copy All
-                  </Button>
-                </div>
+                <Button onClick={copyAll} disabled={!results} variant="outline">
+                  <Copy className="w-4 h-4 mr-2" /> Copy All
+                </Button>
               </CardHeader>
 
               <CardContent className="p-0">
                 {results ? (
                   <div className="flex h-[720px]">
-                    {/* Sidebar */}
                     <div className="w-72 border-r border-zinc-700 bg-zinc-950 p-4 overflow-auto">
                       <div className="uppercase text-xs tracking-widest text-zinc-500 mb-4">SECTIONS</div>
                       <div className="space-y-1">
-                        {parsedSections.map((sec) => (
+                        {parsedSections.map((sec: any) => (
                           <button
                             key={sec.id}
                             onClick={() => setActiveSectionId(sec.id)}
                             className={`w-full text-left px-4 py-3 rounded-xl text-sm transition-all ${
-                              activeSectionId === sec.id 
-                                ? 'bg-violet-600 text-white font-medium' 
-                                : 'hover:bg-zinc-800 text-zinc-400'
+                              activeSectionId === sec.id ? 'bg-violet-600 text-white font-medium' : 'hover:bg-zinc-800 text-zinc-400'
                             }`}
                           >
                             {sec.title}
@@ -220,14 +208,8 @@ export default function Dashboard() {
                       </div>
                     </div>
 
-                    {/* Main Content - Much cleaner */}
-                    <div className="flex-1 p-10 overflow-auto prose prose-invert max-w-none">
-                      <h2 className="text-4xl font-bold text-white mb-8 tracking-tight">
-                        {currentSection?.title}
-                      </h2>
-                      <div className="text-zinc-200 leading-relaxed text-[17px]">
-                        {currentSection?.content}
-                      </div>
+                    <div className="flex-1 p-10 overflow-auto">
+                      <AnalysisRenderer content={currentSection?.content || ''} />
                     </div>
                   </div>
                 ) : (
@@ -235,7 +217,7 @@ export default function Dashboard() {
                     <div>
                       <FileText className="w-16 h-16 text-zinc-600 mx-auto mb-6" />
                       <p className="text-2xl text-white">Ready when you are</p>
-                      <p className="text-zinc-400 mt-3">Select a repository and choose Analyze or 10 Stars</p>
+                      <p className="text-zinc-400 mt-3">Select a repository and click Analyze</p>
                     </div>
                   </div>
                 )}
