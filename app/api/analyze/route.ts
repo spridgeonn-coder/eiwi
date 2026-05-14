@@ -28,16 +28,12 @@ export async function POST(request: NextRequest) {
     }
     if (!token) return NextResponse.json({ error: "GitHub token missing" }, { status: 401 });
 
-    // Improved file discovery
     const importantDirs = ['', 'app', 'lib', 'components', 'src', 'utils', 'hooks', 'api', 'middleware'];
     let allFiles: any[] = [];
 
     for (const dir of importantDirs) {
       try {
-        const url = dir 
-          ? `https://api.github.com/repos/${repoFullName}/contents/${dir}` 
-          : `https://api.github.com/repos/${repoFullName}/contents`;
-        
+        const url = dir ? `https://api.github.com/repos/${repoFullName}/contents/${dir}` : `https://api.github.com/repos/${repoFullName}/contents`;
         const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
         if (res.ok) {
           const data = await res.json();
@@ -50,7 +46,7 @@ export async function POST(request: NextRequest) {
       .filter((f: any) => f.type === 'file' && 
         (f.name.endsWith('.tsx') || f.name.endsWith('.ts') || f.name.endsWith('.js') || 
          f.name === 'README.md' || f.name.includes('package.json')))
-      .slice(0, 28);
+      .slice(0, 30);
 
     let codeContext = '';
     for (const file of priorityFiles) {
@@ -58,7 +54,7 @@ export async function POST(request: NextRequest) {
         const res = await fetch(file.download_url, { headers: { Authorization: `Bearer ${token}` } });
         if (res.ok) {
           let content = await res.text();
-          if (content.length > 11000) content = content.slice(0, 11000) + "\n// ... truncated";
+          if (content.length > 11500) content = content.slice(0, 11500) + "\n// ... truncated";
           codeContext += `\n\n=== ${file.path} ===\n${content}\n`;
         }
       } catch (_) {}
@@ -66,73 +62,57 @@ export async function POST(request: NextRequest) {
 
     const completion = await openai.chat.completions.create({
       model: "gpt-4o",
-      temperature: 0.15,
-      max_tokens: 3400,
+      temperature: 0.1,
+      max_tokens: 3600,
       messages: [
         {
           role: "system",
-          content: `You are a Staff+ Engineer (ex-FAANG / ex-unicorn) who has built and scaled multiple production systems.
+          content: `You are a Staff+ Engineer giving extremely high-signal, technical code reviews.
 
-You give **brutally honest**, extremely high-signal code reviews for mid-to-senior developers. 
-Your goal is to give feedback that is genuinely valuable — the kind you would pay for.
-
-CORE RULES:
-- Never use filler praise or corporate speak.
-- Be specific. Reference exact files, functions, and patterns you see.
-- Every meaningful issue must have: exact location + production impact + concrete, high-quality fix with code.
-- Prioritize by real blast radius (outages, security, data loss, scaling pain, developer velocity).
-- Think like a principal engineer: architecture, long-term maintainability, observability, cost, DX.`
+Style: Dense, bullet-heavy, no fluff. Every point must be specific, actionable, and reference real files/patterns from the code.
+Risk levels: Critical, High, Medium, Low.
+Focus on: security, auth, tokens, scaling, reliability, Supabase patterns, GitHub OAuth pitfalls, Vercel/Next.js gotchas, etc.`
         },
         {
           role: "user",
-          content: `Review this repository as a Staff Engineer.
+          content: `Review this repository as a Staff Engineer. Be sharp and technical.
 
 Repository: ${repoFullName}
 
 Files reviewed: ${priorityFiles.map((f: any) => f.path).join(', ')}
 
-CODE CONTEXT:
-${codeContext || "Could not fetch files — advise user to check GitHub permissions."}
+CODE:
+${codeContext || "Could not fetch files."}
 
----
+Deliver the review in this exact style and structure:
 
-Deliver your review using **exactly** these sections. Do not add or remove any.
+**Executive Summary**  
+One paragraph with overall maturity and biggest concerns.
 
-## Executive Summary
-2-3 sentences. Direct verdict on the codebase maturity and biggest risk/opportunity.
+**Critical / High Risks**  
+- **Risk level: High/Critical**  
+  **Description:** Detailed observation referencing exact file + code pattern.  
+  **Why it matters:** Real production impact.  
+  **Recommendation:** Concrete fix or refactor.
 
-## Blast Radius Issues 🔴
-Critical issues that could cause outages, security breaches, or data problems.
-For each: File + exact problem + why it's dangerous in production + concrete fix with code.
+**Architecture & Design Issues**
 
-## Architecture & Scaling
-How this codebase will behave at 10x traffic or 10x size. What will break first? Highest-leverage architectural refactor?
+**Security & Auth Review**
 
-## Security & Secrets
-Auth, token handling, Supabase, GitHub OAuth, environment variables, etc. Rate severity honestly.
+**Performance & Reliability**
 
-## Performance & Reliability
-N+1s, blocking operations, error handling, retry logic, rate limiting quality, resilience to external services failing.
+**Code Quality — X/10**
 
-## Code Quality — X/10
-Justify the score with specific examples from the code you saw.
+**Refactoring Priorities** (numbered, highest impact first)
 
-## Refactoring Priorities
-Top 4-6 issues ordered by impact. For each:
-- What (file + area)
-- Why it matters
-- How (before → after code)
+**Quick Wins** (very specific, file + code)
 
-## Quick Wins (ship this week)
-3-6 highly specific, high-ROI changes. Be extremely concrete with file names and code.
-
-## What's Actually Good
-Only include if something genuinely stands out as strong. Otherwise omit this section.`
+**What's Actually Good** (only if genuinely strong)`
         }
       ],
     });
 
-    const analysis = completion.choices[0]?.message?.content || "Analysis failed to generate.";
+    const analysis = completion.choices[0]?.message?.content || "No analysis generated.";
 
     return NextResponse.json({
       success: true,
