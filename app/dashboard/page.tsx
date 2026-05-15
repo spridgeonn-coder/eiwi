@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
-import { Search, User, Clipboard, X, AlertCircle, CheckCircle } from "lucide-react";
+import { Search, User, Clipboard, X, AlertCircle, CheckCircle, ChevronDown, Menu } from "lucide-react";
 import AnalysisRenderer from '@/components/AnalysisRenderer';
 
 function CircularGauge({ value }: { value: number }) {
@@ -59,9 +59,7 @@ function AnalysisProgress({ repoName }: { repoName: string }) {
   ];
 
   useEffect(() => {
-    const timer = setInterval(() => {
-      setElapsed(e => e + 1);
-    }, 1000);
+    const timer = setInterval(() => setElapsed(e => e + 1), 1000);
     return () => clearInterval(timer);
   }, []);
 
@@ -69,38 +67,23 @@ function AnalysisProgress({ repoName }: { repoName: string }) {
     let total = 0;
     for (let i = 0; i < steps.length; i++) {
       total += steps[i].duration;
-      if (elapsed < total) {
-        setStepIndex(i);
-        break;
-      }
+      if (elapsed < total) { setStepIndex(i); break; }
     }
   }, [elapsed]);
 
   const progressPercent = Math.min(95, (elapsed / 50) * 100);
 
   return (
-    <div className="h-[500px] flex flex-col items-center justify-center text-center px-8">
-      <div className="w-12 h-12 border-2 border-violet-500 border-t-transparent rounded-full animate-spin mx-auto mb-8" />
-
-      <p className="text-xl font-semibold text-white mb-2">Analyzing {repoName}</p>
-      <p className="text-sm text-zinc-500 mb-8" style={{ minHeight: '20px' }}>
-        {steps[stepIndex].message}
-      </p>
-
-      {/* Progress bar */}
-      <div className="w-64 h-1 rounded-full mb-3" style={{ background: 'rgba(255,255,255,0.06)' }}>
-        <div
-          className="h-1 rounded-full transition-all duration-1000"
-          style={{
-            width: `${progressPercent}%`,
-            background: 'linear-gradient(90deg, #a855f7, #7c3aed)',
-          }}
-        />
+    <div className="h-[400px] flex flex-col items-center justify-center text-center px-6">
+      <div className="w-12 h-12 border-2 border-violet-500 border-t-transparent rounded-full animate-spin mx-auto mb-6" />
+      <p className="text-lg font-semibold text-white mb-2">Analyzing {repoName}</p>
+      <p className="text-sm text-zinc-500 mb-6" style={{ minHeight: '20px' }}>{steps[stepIndex].message}</p>
+      <div className="w-48 h-1 rounded-full mb-2" style={{ background: 'rgba(255,255,255,0.06)' }}>
+        <div className="h-1 rounded-full transition-all duration-1000"
+          style={{ width: `${progressPercent}%`, background: 'linear-gradient(90deg, #a855f7, #7c3aed)' }} />
       </div>
-
       <p className="text-xs text-zinc-600">{elapsed}s elapsed</p>
-
-      <div className="mt-10 flex flex-col gap-2 text-left">
+      <div className="mt-8 flex flex-col gap-2 text-left">
         {steps.slice(0, stepIndex + 1).map((step, i) => (
           <div key={i} className="flex items-center gap-2.5">
             <div className={`w-4 h-4 rounded-full flex items-center justify-center flex-shrink-0 ${i < stepIndex ? 'bg-violet-600' : 'border-2 border-violet-500'}`}>
@@ -110,9 +93,7 @@ function AnalysisProgress({ repoName }: { repoName: string }) {
                 </svg>
               )}
             </div>
-            <p className={`text-xs ${i < stepIndex ? 'text-zinc-500' : 'text-zinc-300'}`}>
-              {step.message}
-            </p>
+            <p className={`text-xs ${i < stepIndex ? 'text-zinc-500' : 'text-zinc-300'}`}>{step.message}</p>
           </div>
         ))}
       </div>
@@ -126,7 +107,7 @@ function Toast({ message, type, onClose }: { message: string; type: 'error' | 's
     return () => clearTimeout(t);
   }, [onClose]);
   return (
-    <div className="fixed bottom-6 right-6 z-50 flex items-start gap-3 px-4 py-3 rounded-2xl shadow-lg max-w-sm"
+    <div className="fixed bottom-6 left-4 right-4 md:left-auto md:right-6 md:max-w-sm z-50 flex items-start gap-3 px-4 py-3 rounded-2xl shadow-lg"
       style={{ background: type === 'error' ? '#1a0f0f' : '#0f1a0f', border: `1px solid ${type === 'error' ? 'rgba(248,113,113,0.3)' : 'rgba(74,222,128,0.3)'}` }}>
       {type === 'error'
         ? <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" />
@@ -147,10 +128,10 @@ function getColor(score: number, invert = false) {
 }
 
 function getSeverityColor(severity: string) {
-  if (/critical/i.test(severity)) return { text: '#f87171', bg: 'rgba(248,113,113,0.12)', border: 'rgba(248,113,113,0.2)', dot: 'bg-red-500' };
-  if (/high/i.test(severity)) return { text: '#f87171', bg: 'rgba(248,113,113,0.12)', border: 'rgba(248,113,113,0.2)', dot: 'bg-red-400' };
-  if (/medium/i.test(severity)) return { text: '#fb923c', bg: 'rgba(251,146,60,0.12)', border: 'rgba(251,146,60,0.2)', dot: 'bg-amber-500' };
-  return { text: '#4ade80', bg: 'rgba(74,222,128,0.1)', border: 'rgba(74,222,128,0.2)', dot: 'bg-green-500' };
+  if (/critical/i.test(severity)) return { text: '#f87171', bg: 'rgba(248,113,113,0.12)', border: 'rgba(248,113,113,0.2)' };
+  if (/high/i.test(severity)) return { text: '#f87171', bg: 'rgba(248,113,113,0.12)', border: 'rgba(248,113,113,0.2)' };
+  if (/medium/i.test(severity)) return { text: '#fb923c', bg: 'rgba(251,146,60,0.12)', border: 'rgba(251,146,60,0.2)' };
+  return { text: '#4ade80', bg: 'rgba(74,222,128,0.1)', border: 'rgba(74,222,128,0.2)' };
 }
 
 function parseIssuesFromAnalysis(analysis: string) {
@@ -163,14 +144,13 @@ function parseIssuesFromAnalysis(analysis: string) {
     const attackMatch = block.match(/Attack vector:\s*([^\n]+)/i);
     const impactMatch = block.match(/Production impact:\s*([^\n]+)/i);
     const fixMatch = block.match(/Fix:\s*([\s\S]+?)(?=\n- \*\*Risk|\n\n\*\*|$)/i);
-
     if (severityMatch) {
       issues.push({
         severity: severityMatch[1]?.trim() || 'High',
         file: fileMatch?.[1]?.trim().replace(/`/g, '') || '',
         title: attackMatch?.[1]?.trim() || '',
         desc: impactMatch?.[1]?.trim() || '',
-        fix: fixMatch?.[1]?.trim().replace(/```[\s\S]*?```/g, m => m) || '',
+        fix: fixMatch?.[1]?.trim() || '',
       });
     }
   }
@@ -192,7 +172,6 @@ function parseIssuesFromAnalysis(analysis: string) {
       }
     }
   }
-
   return issues;
 }
 
@@ -221,10 +200,9 @@ export default function Dashboard() {
   const [stats, setStats] = useState(DEFAULT_STATS);
   const [hasEverAnalyzed, setHasEverAnalyzed] = useState(false);
   const [issueFilter, setIssueFilter] = useState<'all' | 'critical' | 'high' | 'medium'>('all');
+  const [mobileRepoOpen, setMobileRepoOpen] = useState(false);
 
-  const showToast = (message: string, type: 'error' | 'success' = 'error') => {
-    setToast({ message, type });
-  };
+  const showToast = (message: string, type: 'error' | 'success' = 'error') => setToast({ message, type });
 
   useEffect(() => {
     document.title = 'Dashboard | eiwi';
@@ -237,12 +215,7 @@ export default function Dashboard() {
       if (userError || !user) { window.location.href = '/login'; return; }
       setUser(user);
 
-      const { data: profile } = await supabase
-        .from('profile')
-        .select('github_token')
-        .eq('user_id', user.id)
-        .single();
-
+      const { data: profile } = await supabase.from('profile').select('github_token').eq('user_id', user.id).single();
       const token = profile?.github_token ?? null;
       if (!token) { setTokenError(true); setLoadingRepos(false); setLoadingLastAnalysis(false); return; }
       setGithubToken(token);
@@ -308,14 +281,11 @@ export default function Dashboard() {
   };
 
   const analyzeRepo = async (repo: any) => {
-    if (analyzingRepo) {
-      showToast('Please wait for the current analysis to finish.');
-      return;
-    }
-
+    if (analyzingRepo) { showToast('Please wait for the current analysis to finish.'); return; }
     setAnalyzingRepo(repo.full_name);
     setResults(null);
     setSelectedRepo(repo);
+    setMobileRepoOpen(false);
 
     try {
       const res = await fetch('/api/analyze', {
@@ -326,16 +296,8 @@ export default function Dashboard() {
 
       const data = await res.json();
 
-      if (res.status === 429) {
-        showToast(data.error || 'Daily analysis limit reached. Upgrade to Pro for unlimited analyses.');
-        setAnalyzingRepo(null);
-        return;
-      }
-      if (res.status === 409) {
-        showToast('This repo is already being analyzed. Please wait.');
-        setAnalyzingRepo(null);
-        return;
-      }
+      if (res.status === 429) { showToast(data.error || 'Daily limit reached.'); setAnalyzingRepo(null); return; }
+      if (res.status === 409) { showToast('This repo is already being analyzed.'); setAnalyzingRepo(null); return; }
       if (!res.ok || data.error) throw new Error(data.error || 'Analysis failed');
 
       setResults(data);
@@ -354,11 +316,9 @@ export default function Dashboard() {
       }
 
       if (data.cached) showToast('Showing cached results from the last hour.', 'success');
-
     } catch (error: any) {
       showToast(error.message || 'Analysis failed. Please try again.');
     }
-
     setAnalyzingRepo(null);
   };
 
@@ -376,42 +336,15 @@ export default function Dashboard() {
     return { text: '#4ade80', bg: 'rgba(74,222,128,0.1)' };
   };
 
-  const sidebarContent = () => {
-    if (tokenError) return (
-      <div className="px-2 py-4">
-        <p className="text-red-400 text-sm mb-3">⚠️ GitHub token expired.</p>
-        <a href="/profile" className="text-xs text-violet-400 hover:text-violet-300 underline">Reconnect GitHub →</a>
-      </div>
-    );
-    if (loadingRepos) return (
-      <div className="flex items-center gap-2 px-2 py-4">
-        <div className="w-3.5 h-3.5 border-2 border-violet-500 border-t-transparent rounded-full animate-spin" />
-        <span className="text-zinc-500 text-sm">Loading repos...</span>
-      </div>
-    );
-    if (repos.length === 0) return <p className="text-zinc-600 text-sm px-2 py-4">No repositories found.</p>;
-    return repos.map((repo) => (
-      <div key={repo.id} onClick={() => analyzeRepo(repo)}
-        className={`p-4 rounded-2xl border transition-all cursor-pointer ${
-          selectedRepo?.full_name === repo.full_name
-            ? 'border-violet-500/50 bg-violet-950/25'
-            : 'border-white/[0.07] hover:border-white/20 bg-white/[0.02] hover:bg-white/[0.04]'
-        } ${analyzingRepo && analyzingRepo !== repo.full_name ? 'opacity-50 pointer-events-none' : ''}`}>
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 bg-gradient-to-br from-violet-600 to-purple-800 rounded-xl flex items-center justify-center text-[10px] font-bold shadow-md flex-shrink-0">AI</div>
-          <div className="flex-1 min-w-0">
-            <p className="font-medium text-sm truncate">{repo.name}</p>
-            <p className="text-xs text-zinc-600 mt-0.5">
-              {analyzingRepo === repo.full_name ? 'Analyzing...' : selectedRepo?.full_name === repo.full_name && results ? 'Last analyzed just now' : 'Click to analyze'}
-            </p>
-          </div>
-          {analyzingRepo === repo.full_name && (
-            <div className="w-3.5 h-3.5 border-2 border-violet-500 border-t-transparent rounded-full animate-spin flex-shrink-0" />
-          )}
-        </div>
-      </div>
-    ));
-  };
+  const parsedIssues = results?.analysis ? parseIssuesFromAnalysis(results.analysis) : [];
+  const filteredIssues = issueFilter === 'all'
+    ? parsedIssues
+    : issueFilter === 'critical'
+    ? parsedIssues.filter(i => /critical|high/i.test(i.severity))
+    : parsedIssues.filter(i => i.severity.toLowerCase() === issueFilter);
+
+  const criticalCount = parsedIssues.filter(i => /critical|high/i.test(i.severity)).length;
+  const mediumCount = parsedIssues.filter(i => /medium/i.test(i.severity)).length;
 
   const statCards = [
     { badge: 'Blast Radius', value: stats.blastRadius, unit: 'files at risk', sub: 'Files affected by a breaking change', color: getColor(stats.blastRadius, true) },
@@ -421,16 +354,16 @@ export default function Dashboard() {
   ];
 
   const EmptyState = () => (
-    <div className="flex flex-col items-center justify-center min-h-[400px] text-center">
+    <div className="flex flex-col items-center justify-center min-h-[400px] text-center px-4">
       <div className="w-16 h-16 rounded-2xl mb-6 flex items-center justify-center"
         style={{ background: 'linear-gradient(135deg, #a855f7, #7c3aed)' }}>
         <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
           <path d="M4 14L11 21L24 7" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/>
         </svg>
       </div>
-      <h2 className="text-2xl font-bold text-white mb-2">Run your first analysis</h2>
+      <h2 className="text-xl font-bold text-white mb-2">Run your first analysis</h2>
       <p className="text-zinc-500 text-sm max-w-sm leading-relaxed mb-6">
-        Click any repository on the left to get a full AI-powered code review — security vulnerabilities, blast radius, tech debt and more.
+        Select a repository above to get a full AI-powered code review.
       </p>
       <div className="flex flex-col gap-2 text-left">
         {[
@@ -447,89 +380,167 @@ export default function Dashboard() {
     </div>
   );
 
-  const parsedIssues = results?.analysis ? parseIssuesFromAnalysis(results.analysis) : [];
-  const filteredIssues = issueFilter === 'all'
-    ? parsedIssues
-    : issueFilter === 'critical'
-    ? parsedIssues.filter(i => /critical|high/i.test(i.severity))
-    : parsedIssues.filter(i => i.severity.toLowerCase() === issueFilter);
+  const RepoSelector = () => (
+    <div className="relative mb-6 md:hidden">
+      <button
+        onClick={() => setMobileRepoOpen(o => !o)}
+        className="w-full flex items-center gap-3 p-4 rounded-2xl border transition-all"
+        style={{ background: '#111119', border: '1px solid rgba(255,255,255,0.08)' }}
+      >
+        <div className="w-7 h-7 bg-gradient-to-br from-violet-600 to-purple-800 rounded-lg flex items-center justify-center text-[9px] font-bold flex-shrink-0">AI</div>
+        <span className="text-sm font-medium text-white flex-1 text-left truncate">
+          {selectedRepo ? selectedRepo.name : 'Select a repository'}
+        </span>
+        {isAnalyzing && <div className="w-3.5 h-3.5 border-2 border-violet-500 border-t-transparent rounded-full animate-spin flex-shrink-0" />}
+        {!isAnalyzing && <ChevronDown className={`w-4 h-4 text-zinc-500 flex-shrink-0 transition-transform ${mobileRepoOpen ? 'rotate-180' : ''}`} />}
+      </button>
 
-  const criticalCount = parsedIssues.filter(i => /critical|high/i.test(i.severity)).length;
-  const mediumCount = parsedIssues.filter(i => /medium/i.test(i.severity)).length;
+      {mobileRepoOpen && (
+        <div className="absolute top-full left-0 right-0 mt-2 rounded-2xl overflow-hidden z-40 shadow-xl"
+          style={{ background: '#111119', border: '1px solid rgba(255,255,255,0.1)' }}>
+          {tokenError ? (
+            <div className="p-4">
+              <p className="text-red-400 text-sm mb-2">⚠️ GitHub token expired.</p>
+              <a href="/profile" className="text-xs text-violet-400 underline">Reconnect GitHub →</a>
+            </div>
+          ) : loadingRepos ? (
+            <div className="p-4 flex items-center gap-2">
+              <div className="w-3.5 h-3.5 border-2 border-violet-500 border-t-transparent rounded-full animate-spin" />
+              <span className="text-zinc-500 text-sm">Loading repos...</span>
+            </div>
+          ) : repos.map((repo) => (
+            <button key={repo.id} onClick={() => analyzeRepo(repo)}
+              className="w-full flex items-center gap-3 p-4 text-left transition-colors hover:bg-white/[0.04] border-b border-white/[0.05] last:border-0">
+              <div className="w-7 h-7 bg-gradient-to-br from-violet-600 to-purple-800 rounded-lg flex items-center justify-center text-[9px] font-bold flex-shrink-0">AI</div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-white truncate">{repo.name}</p>
+                <p className="text-xs text-zinc-600">{selectedRepo?.full_name === repo.full_name && results ? 'Last analyzed just now' : 'Click to analyze'}</p>
+              </div>
+              {analyzingRepo === repo.full_name && (
+                <div className="w-3.5 h-3.5 border-2 border-violet-500 border-t-transparent rounded-full animate-spin flex-shrink-0" />
+              )}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 
   return (
     <div className="min-h-screen text-white" style={{ background: '#0b0b14' }}>
 
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
 
+      {/* Nav */}
       <nav className="border-b border-white/[0.07] bg-black/70 backdrop-blur-xl sticky top-0 z-50">
-        <div className="max-w-screen-2xl mx-auto px-8 py-4 flex items-center gap-10">
-          <div className="flex items-center gap-2.5 mr-4">
-            <div className="w-8 h-8 bg-gradient-to-br from-violet-500 to-fuchsia-600 rounded-xl flex items-center justify-center shadow-lg shadow-violet-900/40">
+        <div className="max-w-screen-2xl mx-auto px-4 md:px-8 py-4 flex items-center gap-4 md:gap-10">
+          <div className="flex items-center gap-2.5 mr-2 md:mr-4">
+            <div className="w-8 h-8 bg-gradient-to-br from-violet-500 to-fuchsia-600 rounded-xl flex items-center justify-center shadow-lg shadow-violet-900/40 flex-shrink-0">
               <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
                 <path d="M2 7L6 11L12 3" stroke="white" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"/>
               </svg>
             </div>
-            <span className="text-xl font-semibold tracking-tight">eiwi</span>
+            <span className="text-lg md:text-xl font-semibold tracking-tight">eiwi</span>
           </div>
-          <div className="flex items-center gap-8 text-sm flex-1">
+
+          <div className="flex items-center gap-4 md:gap-8 text-sm flex-1 overflow-x-auto scrollbar-hide">
             {(['overview', 'analysis', 'issues'] as const).map(tab => (
               <button key={tab} onClick={() => setActiveTab(tab)}
-                className={`pb-1 capitalize font-medium transition-all ${activeTab === tab ? 'text-white border-b-2 border-violet-500' : 'text-zinc-500 hover:text-zinc-300 border-b-2 border-transparent'}`}>
+                className={`pb-1 capitalize font-medium transition-all whitespace-nowrap flex-shrink-0 ${activeTab === tab ? 'text-white border-b-2 border-violet-500' : 'text-zinc-500 hover:text-zinc-300 border-b-2 border-transparent'}`}>
                 {tab.charAt(0).toUpperCase() + tab.slice(1)}
                 {tab === 'issues' && parsedIssues.length > 0 && (
-                  <span className="ml-2 text-xs px-1.5 py-0.5 rounded-md bg-red-500/20 text-red-400 font-semibold">
+                  <span className="ml-1.5 text-xs px-1.5 py-0.5 rounded-md bg-red-500/20 text-red-400 font-semibold">
                     {parsedIssues.length}
                   </span>
                 )}
               </button>
             ))}
           </div>
-          <div className="flex items-center gap-2.5">
-            {[Search, User, Clipboard].map((Icon, i) => (
-              <button key={i} onClick={i === 1 ? () => window.location.href = '/profile' : undefined}
-                className="w-9 h-9 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.07] flex items-center justify-center transition-colors">
-                <Icon className="w-4 h-4 text-zinc-400" />
-              </button>
-            ))}
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-violet-500 to-fuchsia-600 flex items-center justify-center text-xs font-bold shadow-md ml-1">
+
+          <div className="flex items-center gap-2">
+            <button onClick={() => window.location.href = '/profile'}
+              className="w-8 h-8 md:w-9 md:h-9 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.07] flex items-center justify-center transition-colors">
+              <User className="w-4 h-4 text-zinc-400" />
+            </button>
+            <div className="w-8 h-8 md:w-9 md:h-9 rounded-xl bg-gradient-to-br from-violet-500 to-fuchsia-600 flex items-center justify-center text-xs font-bold shadow-md">
               {displayName.charAt(0).toUpperCase()}
             </div>
           </div>
         </div>
       </nav>
 
-      <div className="max-w-screen-2xl mx-auto px-8 py-8 flex gap-6">
-        <div className="w-72 flex-shrink-0">
+      <div className="max-w-screen-2xl mx-auto px-4 md:px-8 py-6 md:py-8 flex gap-6">
+
+        {/* Desktop Sidebar */}
+        <div className="hidden md:block w-72 flex-shrink-0">
           <h2 className="text-xs font-medium text-zinc-500 mb-4 tracking-widest uppercase">Repository</h2>
-          <div className="space-y-2">{sidebarContent()}</div>
+          <div className="space-y-2">
+            {tokenError ? (
+              <div className="px-2 py-4">
+                <p className="text-red-400 text-sm mb-3">⚠️ GitHub token expired.</p>
+                <a href="/profile" className="text-xs text-violet-400 hover:text-violet-300 underline">Reconnect GitHub →</a>
+              </div>
+            ) : loadingRepos ? (
+              <div className="flex items-center gap-2 px-2 py-4">
+                <div className="w-3.5 h-3.5 border-2 border-violet-500 border-t-transparent rounded-full animate-spin" />
+                <span className="text-zinc-500 text-sm">Loading repos...</span>
+              </div>
+            ) : repos.length === 0 ? (
+              <p className="text-zinc-600 text-sm px-2 py-4">No repositories found.</p>
+            ) : repos.map((repo) => (
+              <div key={repo.id} onClick={() => analyzeRepo(repo)}
+                className={`p-4 rounded-2xl border transition-all cursor-pointer ${
+                  selectedRepo?.full_name === repo.full_name
+                    ? 'border-violet-500/50 bg-violet-950/25'
+                    : 'border-white/[0.07] hover:border-white/20 bg-white/[0.02] hover:bg-white/[0.04]'
+                } ${analyzingRepo && analyzingRepo !== repo.full_name ? 'opacity-50 pointer-events-none' : ''}`}>
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 bg-gradient-to-br from-violet-600 to-purple-800 rounded-xl flex items-center justify-center text-[10px] font-bold shadow-md flex-shrink-0">AI</div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium text-sm truncate">{repo.name}</p>
+                    <p className="text-xs text-zinc-600 mt-0.5">
+                      {analyzingRepo === repo.full_name ? 'Analyzing...' : selectedRepo?.full_name === repo.full_name && results ? 'Last analyzed just now' : 'Click to analyze'}
+                    </p>
+                  </div>
+                  {analyzingRepo === repo.full_name && (
+                    <div className="w-3.5 h-3.5 border-2 border-violet-500 border-t-transparent rounded-full animate-spin flex-shrink-0" />
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
 
+        {/* Main Content */}
         <div className="flex-1 min-w-0">
 
           {activeTab === 'overview' && (
             <div>
-              <div className="mb-8">
-                <h1 className="text-5xl font-bold tracking-tighter">Welcome back, {displayName}</h1>
+              <div className="mb-6">
+                <h1 className="text-3xl md:text-5xl font-bold tracking-tighter">Welcome back, {displayName}</h1>
                 <p className="text-zinc-500 mt-2 text-sm">
                   {isAnalyzing ? `Analyzing ${selectedRepo?.name}...` : 'Your AI Code Intelligence Platform'}
                 </p>
               </div>
+
+              {/* Mobile repo selector */}
+              <RepoSelector />
 
               {isLoading ? (
                 <div className="flex items-center justify-center min-h-[400px]"><Spinner /></div>
               ) : !hasEverAnalyzed && !isAnalyzing ? (
                 <EmptyState />
               ) : (
-                <div className="grid grid-cols-12 gap-4">
-                  <div className="col-span-12 lg:col-span-5 rounded-3xl p-8 flex flex-col items-center justify-center"
-                    style={{ background: 'linear-gradient(145deg,#2d1b69 0%,#1a0f3c 55%,#0f0820 100%)', border: '1px solid rgba(139,92,246,0.3)', minHeight: '230px' }}>
-                    <p className="text-xs uppercase tracking-widest text-violet-300/60 font-medium mb-6">Code Quality Score</p>
+                <div className="grid grid-cols-12 gap-3 md:gap-4">
+
+                  <div className="col-span-12 md:col-span-5 rounded-3xl p-6 md:p-8 flex flex-col items-center justify-center"
+                    style={{ background: 'linear-gradient(145deg,#2d1b69 0%,#1a0f3c 55%,#0f0820 100%)', border: '1px solid rgba(139,92,246,0.3)', minHeight: '200px' }}>
+                    <p className="text-xs uppercase tracking-widest text-violet-300/60 font-medium mb-4 md:mb-6">Code Quality Score</p>
                     {isAnalyzing ? <Spinner /> : <CircularGauge value={stats.quality} />}
                   </div>
 
-                  <div className="col-span-12 lg:col-span-7 rounded-3xl p-8 flex flex-col justify-between"
-                    style={{ background: '#111119', border: '1px solid rgba(255,255,255,0.06)', minHeight: '230px' }}>
+                  <div className="col-span-12 md:col-span-7 rounded-3xl p-6 md:p-8 flex flex-col justify-between"
+                    style={{ background: '#111119', border: '1px solid rgba(255,255,255,0.06)', minHeight: '200px' }}>
                     <div>
                       <h3 className="text-base font-semibold text-white mb-3">Summary Analysis</h3>
                       {isAnalyzing ? <Spinner /> : results?.analysis ? (
@@ -548,10 +559,10 @@ export default function Dashboard() {
                   </div>
 
                   {statCards.map((card, i) => (
-                    <div key={i} className="col-span-6 lg:col-span-3 rounded-3xl p-6 flex flex-col justify-between"
-                      style={{ background: isAnalyzing ? '#111119' : card.color.bg, border: `1px solid ${isAnalyzing ? 'rgba(255,255,255,0.06)' : card.color.border}`, minHeight: '155px', transition: 'background 0.5s, border-color 0.5s' }}>
+                    <div key={i} className="col-span-6 md:col-span-3 rounded-3xl p-4 md:p-6 flex flex-col justify-between"
+                      style={{ background: isAnalyzing ? '#111119' : card.color.bg, border: `1px solid ${isAnalyzing ? 'rgba(255,255,255,0.06)' : card.color.border}`, minHeight: '130px', transition: 'background 0.5s, border-color 0.5s' }}>
                       <div className="flex items-center justify-between">
-                        <span className="text-xs bg-white/[0.06] text-zinc-300 px-2.5 py-1 rounded-lg font-medium">{card.badge}</span>
+                        <span className="text-xs bg-white/[0.06] text-zinc-300 px-2 py-0.5 rounded-lg font-medium">{card.badge}</span>
                         {!isAnalyzing && (
                           <span className="text-xs font-semibold px-2 py-0.5 rounded-md" style={{ color: card.color.text, background: 'rgba(0,0,0,0.3)' }}>
                             {card.color.label}
@@ -560,8 +571,8 @@ export default function Dashboard() {
                       </div>
                       {isAnalyzing ? <Spinner /> : (
                         <div>
-                          <div className="text-4xl font-bold mt-2" style={{ color: card.color.text }}>
-                            {card.value}<span className="text-base font-normal text-zinc-500 ml-1">{card.unit}</span>
+                          <div className="text-3xl md:text-4xl font-bold mt-2" style={{ color: card.color.text }}>
+                            {card.value}<span className="text-sm font-normal text-zinc-500 ml-1">{card.unit}</span>
                           </div>
                           <div className="text-xs text-zinc-500 mt-1 leading-relaxed">{card.sub}</div>
                         </div>
@@ -569,7 +580,7 @@ export default function Dashboard() {
                     </div>
                   ))}
 
-                  <div className="col-span-12 lg:col-span-6 rounded-3xl p-6"
+                  <div className="col-span-12 md:col-span-6 rounded-3xl p-4 md:p-6"
                     style={{ background: '#111119', border: '1px solid rgba(248,113,113,0.3)' }}>
                     <div className="flex items-center gap-2 mb-4">
                       <div className="w-2 h-2 rounded-full bg-red-400 flex-shrink-0" />
@@ -578,9 +589,9 @@ export default function Dashboard() {
                     {isAnalyzing ? <Spinner /> : stats.topPriorityFix ? (
                       <>
                         <p className="text-sm font-medium text-zinc-100 mb-1">{stats.topPriorityFix.issue}</p>
-                        <p className="text-xs text-violet-400 font-mono mb-3">{stats.topPriorityFix.file}</p>
+                        <p className="text-xs text-violet-400 font-mono mb-3 break-all">{stats.topPriorityFix.file}</p>
                         <div className="rounded-xl p-3" style={{ background: 'rgba(248,113,113,0.08)' }}>
-                          <p className="text-xs text-red-300 font-mono leading-relaxed">Fix: {stats.topPriorityFix.fix}</p>
+                          <p className="text-xs text-red-300 font-mono leading-relaxed break-words">Fix: {stats.topPriorityFix.fix}</p>
                         </div>
                       </>
                     ) : (
@@ -588,7 +599,7 @@ export default function Dashboard() {
                     )}
                   </div>
 
-                  <div className="col-span-12 lg:col-span-6 rounded-3xl p-6"
+                  <div className="col-span-12 md:col-span-6 rounded-3xl p-4 md:p-6"
                     style={{ background: '#111119', border: '1px solid rgba(255,255,255,0.06)' }}>
                     <p className="text-xs font-semibold text-zinc-500 uppercase tracking-widest mb-4">Files Scanned</p>
                     {isAnalyzing ? <Spinner /> : stats.scannedFiles.length > 0 ? (
@@ -596,8 +607,8 @@ export default function Dashboard() {
                         {stats.scannedFiles.map((file, i) => {
                           const c = fileStatusColor(file.status);
                           return (
-                            <div key={i} className="flex items-center justify-between">
-                              <span className="text-xs font-mono text-indigo-400 truncate mr-3">{file.path}</span>
+                            <div key={i} className="flex items-center justify-between gap-2">
+                              <span className="text-xs font-mono text-indigo-400 truncate">{file.path}</span>
                               <span className="text-xs px-2 py-0.5 rounded-md flex-shrink-0 font-medium" style={{ color: c.text, background: c.bg }}>
                                 {file.status}
                               </span>
@@ -609,6 +620,7 @@ export default function Dashboard() {
                       <p className="text-zinc-600 text-sm">Files scanned will appear here after analysis.</p>
                     )}
                   </div>
+
                 </div>
               )}
             </div>
@@ -616,25 +628,29 @@ export default function Dashboard() {
 
           {activeTab === 'analysis' && (
             <div>
-              <div className="mb-8">
-                <h1 className="text-4xl font-bold tracking-tight">{selectedRepo ? selectedRepo.name : 'Analysis'}</h1>
+              <div className="mb-6">
+                <h1 className="text-3xl md:text-4xl font-bold tracking-tight">{selectedRepo ? selectedRepo.name : 'Analysis'}</h1>
                 <p className="text-zinc-500 mt-1 text-sm">
                   {results ? 'AI analysis complete' : isAnalyzing ? 'Running analysis...' : 'Select a repository to analyze'}
                 </p>
               </div>
-              <div className="rounded-3xl overflow-hidden" style={{ background: '#111119', border: '1px solid rgba(255,255,255,0.06)', minHeight: '600px' }}>
+
+              {/* Mobile repo selector on analysis tab */}
+              <RepoSelector />
+
+              <div className="rounded-3xl overflow-hidden" style={{ background: '#111119', border: '1px solid rgba(255,255,255,0.06)', minHeight: '500px' }}>
                 {isAnalyzing ? (
                   <AnalysisProgress repoName={selectedRepo?.name || 'repository'} />
                 ) : results ? (
-                  <div className="p-8">
+                  <div className="p-4 md:p-8">
                     <AnalysisRenderer content={results.analysis} />
                   </div>
                 ) : (
-                  <div className="h-[500px] flex items-center justify-center text-center">
+                  <div className="h-[400px] flex items-center justify-center text-center">
                     <div>
                       <div className="text-5xl mb-6 opacity-20">⚡</div>
                       <p className="text-xl text-zinc-300">No analysis yet</p>
-                      <p className="text-zinc-600 mt-3 text-sm">Click a repository on the left to start</p>
+                      <p className="text-zinc-600 mt-3 text-sm">Select a repository above to start</p>
                     </div>
                   </div>
                 )}
@@ -645,28 +661,31 @@ export default function Dashboard() {
           {activeTab === 'issues' && (
             <div>
               <div className="mb-6">
-                <h1 className="text-4xl font-bold tracking-tight">Issues</h1>
+                <h1 className="text-3xl md:text-4xl font-bold tracking-tight">Issues</h1>
                 <p className="text-zinc-500 mt-1 text-sm">
                   {results ? `${parsedIssues.length} issues found in ${selectedRepo?.name}` : 'Run an analysis to surface issues'}
                 </p>
               </div>
 
+              {/* Mobile repo selector on issues tab */}
+              <RepoSelector />
+
               {results && parsedIssues.length > 0 && (
                 <>
-                  <div className="grid grid-cols-3 gap-3 mb-6">
+                  <div className="grid grid-cols-3 gap-2 md:gap-3 mb-4 md:mb-6">
                     {[
                       { label: 'Critical / High', count: criticalCount, color: '#f87171', bg: 'rgba(248,113,113,0.08)', border: 'rgba(248,113,113,0.2)' },
                       { label: 'Medium', count: mediumCount, color: '#fb923c', bg: 'rgba(251,146,60,0.08)', border: 'rgba(251,146,60,0.2)' },
-                      { label: 'Total Issues', count: parsedIssues.length, color: '#a78bfa', bg: 'rgba(167,139,250,0.08)', border: 'rgba(167,139,250,0.2)' },
+                      { label: 'Total', count: parsedIssues.length, color: '#a78bfa', bg: 'rgba(167,139,250,0.08)', border: 'rgba(167,139,250,0.2)' },
                     ].map((s, i) => (
-                      <div key={i} className="rounded-2xl p-4" style={{ background: s.bg, border: `1px solid ${s.border}` }}>
-                        <p className="text-2xl font-bold" style={{ color: s.color }}>{s.count}</p>
+                      <div key={i} className="rounded-2xl p-3 md:p-4" style={{ background: s.bg, border: `1px solid ${s.border}` }}>
+                        <p className="text-xl md:text-2xl font-bold" style={{ color: s.color }}>{s.count}</p>
                         <p className="text-xs text-zinc-500 mt-1">{s.label}</p>
                       </div>
                     ))}
                   </div>
 
-                  <div className="flex gap-2 mb-6">
+                  <div className="flex gap-2 mb-4 md:mb-6 flex-wrap">
                     {(['all', 'critical', 'high', 'medium'] as const).map(f => (
                       <button key={f} onClick={() => setIssueFilter(f)}
                         className="px-3 py-1.5 rounded-xl text-xs font-medium transition-all capitalize"
@@ -693,29 +712,25 @@ export default function Dashboard() {
                     return (
                       <div key={i} className="rounded-2xl overflow-hidden"
                         style={{ background: '#111119', border: '1px solid rgba(255,255,255,0.06)' }}>
-                        <div className="p-5">
-                          <div className="flex items-center gap-3 mb-3">
+                        <div className="p-4 md:p-5">
+                          <div className="flex items-center gap-2 mb-3 flex-wrap">
                             {issue.file && (
-                              <span className="text-xs font-mono px-2.5 py-1 rounded-lg"
+                              <span className="text-xs font-mono px-2.5 py-1 rounded-lg break-all"
                                 style={{ color: '#c4b5fd', background: 'rgba(167,139,250,0.12)', border: '1px solid rgba(167,139,250,0.2)' }}>
                                 {issue.file}
                               </span>
                             )}
-                            <span className="text-xs font-bold px-2.5 py-1 rounded-lg ml-auto"
+                            <span className="text-xs font-bold px-2.5 py-1 rounded-lg ml-auto flex-shrink-0"
                               style={{ color: sc.text, background: sc.bg, border: `1px solid ${sc.border}` }}>
                               {issue.severity}
                             </span>
                           </div>
-                          {issue.title && (
-                            <p className="text-sm font-semibold text-zinc-100 mb-2 leading-relaxed">{issue.title}</p>
-                          )}
-                          {issue.desc && (
-                            <p className="text-xs text-zinc-500 leading-relaxed">{issue.desc}</p>
-                          )}
+                          {issue.title && <p className="text-sm font-semibold text-zinc-100 mb-2 leading-relaxed">{issue.title}</p>}
+                          {issue.desc && <p className="text-xs text-zinc-500 leading-relaxed">{issue.desc}</p>}
                           {issue.fix && (
                             <div className="mt-3 p-3 rounded-xl" style={{ background: 'rgba(139,92,246,0.08)', borderLeft: '2px solid #8b5cf6' }}>
                               <p className="text-xs text-violet-400 font-semibold uppercase tracking-wider mb-1.5">Fix</p>
-                              <p className="text-xs font-mono text-purple-200 leading-relaxed">{issue.fix.replace(/```[\s\S]*?```/g, '').trim()}</p>
+                              <p className="text-xs font-mono text-purple-200 leading-relaxed break-words">{issue.fix.replace(/```[\s\S]*?```/g, '').trim()}</p>
                             </div>
                           )}
                         </div>
@@ -723,19 +738,19 @@ export default function Dashboard() {
                     );
                   })
                 ) : results ? (
-                  <div className="h-[300px] flex items-center justify-center text-center rounded-3xl"
+                  <div className="h-[200px] flex items-center justify-center text-center rounded-3xl"
                     style={{ background: '#111119', border: '1px solid rgba(255,255,255,0.06)' }}>
                     <div>
                       <p className="text-zinc-400 text-sm">No {issueFilter !== 'all' ? issueFilter : ''} issues found</p>
                       {issueFilter !== 'all' && (
-                        <button onClick={() => setIssueFilter('all')} className="text-xs text-violet-400 mt-2">
+                        <button onClick={() => setIssueFilter('all')} className="text-xs text-violet-400 mt-2 block mx-auto">
                           Show all issues
                         </button>
                       )}
                     </div>
                   </div>
                 ) : (
-                  <div className="h-[400px] flex items-center justify-center text-center rounded-3xl"
+                  <div className="h-[300px] flex items-center justify-center text-center rounded-3xl"
                     style={{ background: '#111119', border: '1px solid rgba(255,255,255,0.06)' }}>
                     <div>
                       <div className="text-5xl mb-6 opacity-20">🔍</div>
