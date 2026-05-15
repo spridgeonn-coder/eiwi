@@ -2,11 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { LogOut, User, GitBranch, Save, Edit, X } from "lucide-react";
+import { LogOut, User, GitBranch, Edit, X, Check } from "lucide-react";
 
 export default function Profile() {
   const [user, setUser] = useState<any>(null);
@@ -18,22 +14,14 @@ export default function Profile() {
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    loadProfile();
-  }, []);
+  useEffect(() => { loadProfile(); }, []);
 
   const loadProfile = async () => {
     const { data: { user } } = await supabase.auth.getUser();
     if (user) {
       setUser(user);
       setEmail(user.email || '');
-
-      const { data } = await supabase
-        .from('profile')
-        .select('*')
-        .eq('user_id', user.id)
-        .single();
-
+      const { data } = await supabase.from('profile').select('*').eq('user_id', user.id).single();
       if (data) {
         setProfile(data);
         setFirstName(data.first_name || '');
@@ -46,21 +34,8 @@ export default function Profile() {
   const saveProfile = async () => {
     if (!user) return;
     setSaving(true);
-
-    await supabase
-      .from('profile')
-      .upsert({
-        user_id: user.id,
-        first_name: firstName,
-        last_name: lastName,
-        updated_at: new Date().toISOString()
-      });
-
-    if (email !== user.email) {
-      await supabase.auth.updateUser({ email });
-    }
-
-    alert("✅ Profile saved!");
+    await supabase.from('profile').upsert({ user_id: user.id, first_name: firstName, last_name: lastName, updated_at: new Date().toISOString() });
+    if (email !== user.email) await supabase.auth.updateUser({ email });
     setIsEditing(false);
     loadProfile();
     setSaving(false);
@@ -76,9 +51,7 @@ export default function Profile() {
   const reconnectGitHub = async () => {
     await supabase.auth.signInWithOAuth({
       provider: 'github',
-      options: {
-        redirectTo: `${window.location.origin}/profile`,
-      },
+      options: { redirectTo: `${window.location.origin}/profile` },
     });
   };
 
@@ -87,112 +60,179 @@ export default function Profile() {
     window.location.href = '/';
   };
 
-  if (loading) return <div className="min-h-screen bg-zinc-950 flex items-center justify-center text-white">Loading...</div>;
+  const displayName = user?.user_metadata?.user_name
+    || user?.user_metadata?.full_name?.split(' ')[0]
+    || user?.email?.split('@')[0]
+    || 'there';
+
+  if (loading) return (
+    <div className="min-h-screen flex items-center justify-center" style={{ background: '#0b0b14' }}>
+      <div className="w-8 h-8 border-2 border-violet-500 border-t-transparent rounded-full animate-spin" />
+    </div>
+  );
 
   return (
-    <div className="min-h-screen bg-zinc-950 text-white">
-      <nav className="border-b border-zinc-800 bg-zinc-900/80 backdrop-blur-md sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-8 py-5 flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <div className="w-9 h-9 bg-gradient-to-br from-violet-500 via-fuchsia-500 to-purple-600 rounded-2xl flex items-center justify-center shadow-lg">
-              <span className="font-bold text-2xl">E</span>
+    <div className="min-h-screen text-white" style={{ background: '#0b0b14' }}>
+
+      {/* Nav */}
+      <nav className="border-b border-white/[0.07] bg-black/70 backdrop-blur-xl sticky top-0 z-50">
+        <div className="max-w-screen-2xl mx-auto px-8 py-4 flex items-center gap-6">
+          <a href="/dashboard" className="flex items-center gap-2.5 mr-4">
+            <div className="w-8 h-8 bg-gradient-to-br from-violet-500 to-fuchsia-600 rounded-xl flex items-center justify-center shadow-lg shadow-violet-900/40">
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                <path d="M2 7L6 11L12 3" stroke="white" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
             </div>
-            <h1 className="text-3xl font-bold tracking-tighter">Eiwi</h1>
-          </div>
-          <div className="flex items-center gap-6">
-            <a href="/dashboard" className="text-zinc-400 hover:text-white">Dashboard</a>
-            <Button onClick={handleSignOut} variant="outline" className="bg-zinc-800 hover:bg-zinc-700 border-zinc-700">
-              <LogOut className="w-4 h-4 mr-2" />
-              Sign Out
-            </Button>
+            <span className="text-xl font-semibold tracking-tight">eiwi</span>
+          </a>
+
+          <div className="flex-1" />
+
+          <a href="/dashboard" className="text-sm text-zinc-500 hover:text-zinc-300 transition-colors">
+            Dashboard
+          </a>
+
+          <button
+            onClick={handleSignOut}
+            className="flex items-center gap-2 text-sm text-zinc-500 hover:text-zinc-300 transition-colors px-3 py-1.5 rounded-xl border border-white/[0.07] hover:border-white/20"
+          >
+            <LogOut className="w-4 h-4" />
+            Sign out
+          </button>
+
+          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-violet-500 to-fuchsia-600 flex items-center justify-center text-xs font-bold shadow-md">
+            {displayName.charAt(0).toUpperCase()}
           </div>
         </div>
       </nav>
 
-      <div className="max-w-4xl mx-auto px-8 py-12">
-        <h2 className="text-5xl font-bold tracking-tight mb-2">Profile Settings</h2>
-        <p className="text-zinc-400 mb-10">Manage your account information</p>
+      <div className="max-w-3xl mx-auto px-8 py-12">
 
-        <Card className="bg-zinc-900/70 border border-zinc-700 backdrop-blur">
-          <CardHeader className="border-b border-zinc-700 pb-4 flex flex-row items-center justify-between">
-            <CardTitle className="text-2xl text-white flex items-center gap-3">
-              <User className="w-6 h-6" />
-              Account Information
-            </CardTitle>
+        <h1 className="text-4xl font-bold tracking-tighter mb-1">Profile Settings</h1>
+        <p className="text-zinc-500 text-sm mb-10">Manage your account information</p>
+
+        {/* Account Information */}
+        <div className="rounded-3xl overflow-hidden mb-4" style={{ background: '#111119', border: '1px solid rgba(255,255,255,0.06)' }}>
+          <div className="flex items-center justify-between px-8 py-5 border-b border-white/[0.06]">
+            <div className="flex items-center gap-3">
+              <User className="w-4 h-4 text-zinc-500" />
+              <span className="text-sm font-semibold text-zinc-300">Account Information</span>
+            </div>
             {!isEditing && (
-              <Button onClick={() => setIsEditing(true)} variant="outline">
-                <Edit className="w-4 h-4 mr-2" />
+              <button
+                onClick={() => setIsEditing(true)}
+                className="flex items-center gap-1.5 text-xs text-zinc-400 hover:text-white transition-colors px-3 py-1.5 rounded-xl border border-white/[0.07] hover:border-white/20"
+              >
+                <Edit className="w-3.5 h-3.5" />
                 Edit
-              </Button>
+              </button>
             )}
-          </CardHeader>
+          </div>
 
-          <CardContent className="pt-8 space-y-6">
+          <div className="px-8 py-8">
             {isEditing ? (
-              // Edit mode
-              <>
-                <div className="grid grid-cols-2 gap-6">
+              <div className="space-y-5">
+                <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <Label>First Name</Label>
-                    <Input value={firstName} onChange={(e) => setFirstName(e.target.value)} className="bg-zinc-800 border-zinc-700 mt-1" />
+                    <label className="text-xs text-zinc-500 font-medium mb-2 block">First Name</label>
+                    <input
+                      value={firstName}
+                      onChange={e => setFirstName(e.target.value)}
+                      className="w-full px-4 py-3 rounded-xl text-sm text-white outline-none transition-colors"
+                      style={{ background: '#1a1a28', border: '1px solid rgba(255,255,255,0.08)' }}
+                      onFocus={e => e.target.style.borderColor = 'rgba(168,85,247,0.5)'}
+                      onBlur={e => e.target.style.borderColor = 'rgba(255,255,255,0.08)'}
+                    />
                   </div>
                   <div>
-                    <Label>Last Name</Label>
-                    <Input value={lastName} onChange={(e) => setLastName(e.target.value)} className="bg-zinc-800 border-zinc-700 mt-1" />
+                    <label className="text-xs text-zinc-500 font-medium mb-2 block">Last Name</label>
+                    <input
+                      value={lastName}
+                      onChange={e => setLastName(e.target.value)}
+                      className="w-full px-4 py-3 rounded-xl text-sm text-white outline-none transition-colors"
+                      style={{ background: '#1a1a28', border: '1px solid rgba(255,255,255,0.08)' }}
+                      onFocus={e => e.target.style.borderColor = 'rgba(168,85,247,0.5)'}
+                      onBlur={e => e.target.style.borderColor = 'rgba(255,255,255,0.08)'}
+                    />
                   </div>
                 </div>
-
                 <div>
-                  <Label>Email</Label>
-                  <Input value={email} onChange={(e) => setEmail(e.target.value)} type="email" className="bg-zinc-800 border-zinc-700 mt-1" />
+                  <label className="text-xs text-zinc-500 font-medium mb-2 block">Email</label>
+                  <input
+                    value={email}
+                    onChange={e => setEmail(e.target.value)}
+                    type="email"
+                    className="w-full px-4 py-3 rounded-xl text-sm text-white outline-none transition-colors"
+                    style={{ background: '#1a1a28', border: '1px solid rgba(255,255,255,0.08)' }}
+                    onFocus={e => e.target.style.borderColor = 'rgba(168,85,247,0.5)'}
+                    onBlur={e => e.target.style.borderColor = 'rgba(255,255,255,0.08)'}
+                  />
                 </div>
-
-                <div className="flex gap-3 pt-4">
-                  <Button onClick={saveProfile} disabled={saving} className="flex-1">
-                    Save Changes
-                  </Button>
-                  <Button onClick={cancelEdit} variant="outline" className="flex-1">
+                <div className="flex gap-3 pt-2">
+                  <button
+                    onClick={saveProfile}
+                    disabled={saving}
+                    className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-medium transition-all"
+                    style={{ background: 'linear-gradient(135deg, #a855f7, #7c3aed)', opacity: saving ? 0.7 : 1 }}
+                  >
+                    <Check className="w-4 h-4" />
+                    {saving ? 'Saving...' : 'Save Changes'}
+                  </button>
+                  <button
+                    onClick={cancelEdit}
+                    className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-medium text-zinc-400 hover:text-white transition-colors border border-white/[0.07] hover:border-white/20"
+                  >
+                    <X className="w-4 h-4" />
                     Cancel
-                  </Button>
+                  </button>
                 </div>
-              </>
+              </div>
             ) : (
-              // View mode
-              <div className="flex items-center gap-6">
-                <div className="w-20 h-20 bg-zinc-700 rounded-2xl flex items-center justify-center text-5xl">
-                  👤
+              <div className="flex items-center gap-5">
+                <div className="w-16 h-16 rounded-2xl flex items-center justify-center text-2xl font-bold flex-shrink-0"
+                  style={{ background: 'linear-gradient(135deg, #a855f7, #7c3aed)' }}>
+                  {displayName.charAt(0).toUpperCase()}
                 </div>
                 <div>
-                  <p className="text-3xl font-semibold">
-                    {firstName || lastName ? `${firstName} ${lastName}`.trim() : "No name set"}
+                  <p className="text-xl font-semibold text-white">
+                    {firstName || lastName ? `${firstName} ${lastName}`.trim() : displayName}
                   </p>
-                  <p className="text-zinc-400">{email}</p>
+                  <p className="text-sm text-zinc-500 mt-0.5">{email}</p>
                 </div>
               </div>
             )}
-          </CardContent>
-        </Card>
+          </div>
+        </div>
 
         {/* GitHub Connection */}
-        <Card className="bg-zinc-900/70 border border-zinc-700 backdrop-blur mt-8">
-          <CardHeader className="border-b border-zinc-700 pb-4">
-            <CardTitle className="text-2xl text-white flex items-center gap-3">
-              <GitBranch className="w-6 h-6" />
-              GitHub Connection
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="pt-8">
-            <div className="p-6 bg-zinc-800 rounded-2xl flex justify-between items-center">
+        <div className="rounded-3xl overflow-hidden" style={{ background: '#111119', border: '1px solid rgba(255,255,255,0.06)' }}>
+          <div className="flex items-center gap-3 px-8 py-5 border-b border-white/[0.06]">
+            <GitBranch className="w-4 h-4 text-zinc-500" />
+            <span className="text-sm font-semibold text-zinc-300">GitHub Connection</span>
+          </div>
+
+          <div className="px-8 py-8">
+            <div className="flex items-center justify-between p-5 rounded-2xl" style={{ background: '#1a1a28', border: '1px solid rgba(255,255,255,0.06)' }}>
               <div>
-                <p className="font-medium">Connected GitHub Account</p>
-                <p className="text-emerald-400 text-sm mt-1">✅ OAuth connected • Repos accessible</p>
+                <p className="text-sm font-medium text-white mb-1">Connected GitHub Account</p>
+                <div className="flex items-center gap-1.5">
+                  <div className="w-1.5 h-1.5 rounded-full bg-green-400" />
+                  <p className="text-xs text-green-400">OAuth connected · Repos accessible</p>
+                </div>
               </div>
-              <Button onClick={reconnectGitHub} variant="outline">
+              <button
+                onClick={reconnectGitHub}
+                className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm text-zinc-300 hover:text-white transition-colors border border-white/[0.07] hover:border-white/20"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"/>
+                </svg>
                 Reconnect GitHub
-              </Button>
+              </button>
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
+
       </div>
     </div>
   );
