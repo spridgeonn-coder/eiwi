@@ -9,11 +9,6 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
-
 async function fetchDirRecursive(
   repoFullName: string,
   token: string,
@@ -47,6 +42,18 @@ async function fetchDirRecursive(
 
 export async function POST(request: NextRequest) {
   try {
+    // ✅ Admin client created inside function so env vars are guaranteed to be loaded
+    const supabaseAdmin = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      {
+        auth: {
+          autoRefreshToken: false,
+          persistSession: false,
+        }
+      }
+    );
+
     const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -64,7 +71,6 @@ export async function POST(request: NextRequest) {
 
     const { repoFullName, repoName } = await request.json();
 
-    // Debug: log environment variable presence
     console.log('ENV CHECK:', {
       hasSupabaseUrl: !!process.env.NEXT_PUBLIC_SUPABASE_URL,
       hasServiceKey: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
