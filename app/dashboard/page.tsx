@@ -16,16 +16,9 @@ function CircularGauge({ value }: { value: number }) {
       <div className="relative flex items-center justify-center w-36 h-36">
         <svg className="w-36 h-36 -rotate-90" viewBox="0 0 140 140">
           <circle cx="70" cy="70" r={radius} fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth="10" />
-          <circle
-            cx="70" cy="70" r={radius}
-            fill="none"
-            stroke="url(#gaugeGrad)"
-            strokeWidth="10"
-            strokeLinecap="round"
-            strokeDasharray={circumference}
-            strokeDashoffset={offset}
-            style={{ transition: 'stroke-dashoffset 1s ease' }}
-          />
+          <circle cx="70" cy="70" r={radius} fill="none" stroke="url(#gaugeGrad)" strokeWidth="10" strokeLinecap="round"
+            strokeDasharray={circumference} strokeDashoffset={offset}
+            style={{ transition: 'stroke-dashoffset 1s ease' }} />
           <defs>
             <linearGradient id="gaugeGrad" x1="0%" y1="0%" x2="100%" y2="0%">
               <stop offset="0%" stopColor="#a855f7" />
@@ -41,6 +34,21 @@ function CircularGauge({ value }: { value: number }) {
       <span className="text-xs text-zinc-600 mt-1">Overall repo health</span>
     </div>
   );
+}
+
+function Spinner() {
+  return (
+    <div className="flex items-center justify-center w-full h-full min-h-[80px]">
+      <div className="w-7 h-7 border-2 border-violet-500 border-t-transparent rounded-full animate-spin" />
+    </div>
+  );
+}
+
+function getColor(score: number, invert = false) {
+  const v = invert ? 100 - score : score;
+  if (v >= 75) return { text: '#4ade80', bg: 'rgba(74,222,128,0.08)', border: 'rgba(74,222,128,0.25)', label: 'Good' };
+  if (v >= 45) return { text: '#fb923c', bg: 'rgba(251,146,60,0.08)', border: 'rgba(251,146,60,0.25)', label: 'Moderate' };
+  return { text: '#f87171', bg: 'rgba(248,113,113,0.08)', border: 'rgba(248,113,113,0.25)', label: 'Critical' };
 }
 
 export default function Dashboard() {
@@ -74,20 +82,11 @@ export default function Dashboard() {
       let token: string | null = session?.provider_token ?? null;
 
       if (!token) {
-        const { data: profile } = await supabase
-          .from('profile')
-          .select('github_token')
-          .eq('user_id', user.id)
-          .single();
+        const { data: profile } = await supabase.from('profile').select('github_token').eq('user_id', user.id).single();
         token = profile?.github_token ?? null;
       }
 
-      if (!token) {
-        setTokenError(true);
-        setLoadingRepos(false);
-        return;
-      }
-
+      if (!token) { setTokenError(true); setLoadingRepos(false); return; }
       setGithubToken(token);
     };
     init();
@@ -106,9 +105,7 @@ export default function Dashboard() {
       });
       if (!res.ok) throw new Error(`GitHub ${res.status}`);
       setRepos(await res.json());
-    } catch (e) {
-      setTokenError(true);
-    }
+    } catch (e) { setTokenError(true); }
     setLoadingRepos(false);
   };
 
@@ -117,15 +114,12 @@ export default function Dashboard() {
     setAnalyzingRepo(repo.full_name);
     setResults(null);
     setSelectedRepo(repo);
-    setActiveTab('analysis');
+    // Stay on overview tab — spinners show in each card
 
     try {
       const res = await fetch('/api/analyze', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${githubToken}`
-        },
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${githubToken}` },
         body: JSON.stringify({ repoFullName: repo.full_name, repoName: repo.name })
       });
       const data = await res.json();
@@ -150,25 +144,24 @@ export default function Dashboard() {
     setAnalyzingRepo(null);
   };
 
-  const getColor = (score: number, invert = false) => {
-    const v = invert ? 100 - score : score;
-    if (v >= 75) return { text: '#4ade80', bg: 'rgba(74,222,128,0.08)', border: 'rgba(74,222,128,0.25)', label: 'Good' };
-    if (v >= 45) return { text: '#fb923c', bg: 'rgba(251,146,60,0.08)', border: 'rgba(251,146,60,0.25)', label: 'Moderate' };
-    return { text: '#f87171', bg: 'rgba(248,113,113,0.08)', border: 'rgba(248,113,113,0.25)', label: 'Critical' };
-  };
+  const isAnalyzing = !!analyzingRepo;
 
   const displayName = user?.user_metadata?.user_name
     || user?.user_metadata?.full_name?.split(' ')[0]
     || user?.email?.split('@')[0]
     || 'there';
 
+  const fileStatusColor = (status: string) => {
+    if (status === 'Critical') return { text: '#f87171', bg: 'rgba(248,113,113,0.12)' };
+    if (status === 'Review') return { text: '#fb923c', bg: 'rgba(251,146,60,0.12)' };
+    return { text: '#4ade80', bg: 'rgba(74,222,128,0.1)' };
+  };
+
   const sidebarContent = () => {
     if (tokenError) return (
       <div className="px-2 py-4">
         <p className="text-red-400 text-sm mb-3">⚠️ GitHub token expired.</p>
-        <a href="/profile" className="text-xs text-violet-400 hover:text-violet-300 underline">
-          Reconnect GitHub in Profile →
-        </a>
+        <a href="/profile" className="text-xs text-violet-400 hover:text-violet-300 underline">Reconnect GitHub →</a>
       </div>
     );
     if (loadingRepos) return (
@@ -177,31 +170,16 @@ export default function Dashboard() {
         <span className="text-zinc-500 text-sm">Loading repos...</span>
       </div>
     );
-    if (repos.length === 0) return (
-      <p className="text-zinc-600 text-sm px-2 py-4">No repositories found.</p>
-    );
+    if (repos.length === 0) return <p className="text-zinc-600 text-sm px-2 py-4">No repositories found.</p>;
     return repos.map((repo) => (
-      <div
-        key={repo.id}
-        onClick={() => analyzeRepo(repo)}
-        className={`p-4 rounded-2xl border transition-all cursor-pointer ${
-          selectedRepo?.id === repo.id
-            ? 'border-violet-500/50 bg-violet-950/25'
-            : 'border-white/[0.07] hover:border-white/20 bg-white/[0.02] hover:bg-white/[0.04]'
-        }`}
-      >
+      <div key={repo.id} onClick={() => analyzeRepo(repo)}
+        className={`p-4 rounded-2xl border transition-all cursor-pointer ${selectedRepo?.id === repo.id ? 'border-violet-500/50 bg-violet-950/25' : 'border-white/[0.07] hover:border-white/20 bg-white/[0.02] hover:bg-white/[0.04]'}`}>
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 bg-gradient-to-br from-violet-600 to-purple-800 rounded-xl flex items-center justify-center text-[10px] font-bold shadow-md flex-shrink-0">
-            AI
-          </div>
+          <div className="w-8 h-8 bg-gradient-to-br from-violet-600 to-purple-800 rounded-xl flex items-center justify-center text-[10px] font-bold shadow-md flex-shrink-0">AI</div>
           <div className="flex-1 min-w-0">
             <p className="font-medium text-sm truncate">{repo.name}</p>
             <p className="text-xs text-zinc-600 mt-0.5">
-              {analyzingRepo === repo.full_name
-                ? 'Analyzing...'
-                : selectedRepo?.id === repo.id && results
-                ? 'Last analyzed just now'
-                : 'Click to analyze'}
+              {analyzingRepo === repo.full_name ? 'Analyzing...' : selectedRepo?.id === repo.id && results ? 'Last analyzed just now' : 'Click to analyze'}
             </p>
           </div>
           {analyzingRepo === repo.full_name && (
@@ -213,45 +191,14 @@ export default function Dashboard() {
   };
 
   const statCards = [
-    {
-      badge: 'Blast Radius',
-      value: stats.blastRadius,
-      unit: 'files at risk',
-      sub: 'Files affected by a breaking change',
-      color: getColor(stats.blastRadius, true),
-    },
-    {
-      badge: 'Security',
-      value: stats.securityMm,
-      unit: '/ 100',
-      sub: 'Auth, token & env variable exposure',
-      color: getColor(stats.securityMm),
-    },
-    {
-      badge: 'Performance',
-      value: stats.performanceMm,
-      unit: '/ 100',
-      sub: 'Runtime efficiency & load time',
-      color: getColor(stats.performanceMm),
-    },
-    {
-      badge: 'Tech Debt',
-      value: stats.techDebt,
-      unit: 'hrs to fix',
-      sub: 'Estimated cleanup effort',
-      color: getColor(100 - Math.min(stats.techDebt, 100)),
-    },
+    { badge: 'Blast Radius', value: stats.blastRadius, unit: 'files at risk', sub: 'Files affected by a breaking change', color: getColor(stats.blastRadius, true) },
+    { badge: 'Security', value: stats.securityMm, unit: '/ 100', sub: 'Auth, token & env variable exposure', color: getColor(stats.securityMm) },
+    { badge: 'Performance', value: stats.performanceMm, unit: '/ 100', sub: 'Runtime efficiency & load time', color: getColor(stats.performanceMm) },
+    { badge: 'Tech Debt', value: stats.techDebt, unit: 'hrs to fix', sub: 'Estimated cleanup effort', color: getColor(100 - Math.min(stats.techDebt, 100)) },
   ];
-
-  const fileStatusColor = (status: string) => {
-    if (status === 'Critical') return { text: '#f87171', bg: 'rgba(248,113,113,0.12)' };
-    if (status === 'Review') return { text: '#fb923c', bg: 'rgba(251,146,60,0.12)' };
-    return { text: '#4ade80', bg: 'rgba(74,222,128,0.1)' };
-  };
 
   return (
     <div className="min-h-screen text-white" style={{ background: '#0b0b14' }}>
-
       <nav className="border-b border-white/[0.07] bg-black/70 backdrop-blur-xl sticky top-0 z-50">
         <div className="max-w-screen-2xl mx-auto px-8 py-4 flex items-center gap-10">
           <div className="flex items-center gap-2.5 mr-4">
@@ -262,30 +209,18 @@ export default function Dashboard() {
             </div>
             <span className="text-xl font-semibold tracking-tight">eiwi</span>
           </div>
-
           <div className="flex items-center gap-8 text-sm flex-1">
             {(['overview', 'analysis', 'issues'] as const).map(tab => (
-              <button
-                key={tab}
-                onClick={() => setActiveTab(tab)}
-                className={`pb-1 capitalize font-medium transition-all ${
-                  activeTab === tab
-                    ? 'text-white border-b-2 border-violet-500'
-                    : 'text-zinc-500 hover:text-zinc-300 border-b-2 border-transparent'
-                }`}
-              >
+              <button key={tab} onClick={() => setActiveTab(tab)}
+                className={`pb-1 capitalize font-medium transition-all ${activeTab === tab ? 'text-white border-b-2 border-violet-500' : 'text-zinc-500 hover:text-zinc-300 border-b-2 border-transparent'}`}>
                 {tab.charAt(0).toUpperCase() + tab.slice(1)}
               </button>
             ))}
           </div>
-
           <div className="flex items-center gap-2.5">
             {[Search, User, Clipboard].map((Icon, i) => (
-              <button
-                key={i}
-                onClick={i === 1 ? () => window.location.href = '/profile' : undefined}
-                className="w-9 h-9 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.07] flex items-center justify-center transition-colors"
-              >
+              <button key={i} onClick={i === 1 ? () => window.location.href = '/profile' : undefined}
+                className="w-9 h-9 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.07] flex items-center justify-center transition-colors">
                 <Icon className="w-4 h-4 text-zinc-400" />
               </button>
             ))}
@@ -297,7 +232,6 @@ export default function Dashboard() {
       </nav>
 
       <div className="max-w-screen-2xl mx-auto px-8 py-8 flex gap-6">
-
         <div className="w-72 flex-shrink-0">
           <h2 className="text-xs font-medium text-zinc-500 mb-4 tracking-widest uppercase">Repository</h2>
           <div className="space-y-2">{sidebarContent()}</div>
@@ -309,7 +243,9 @@ export default function Dashboard() {
             <div>
               <div className="mb-8">
                 <h1 className="text-5xl font-bold tracking-tighter">Welcome back, {displayName}</h1>
-                <p className="text-zinc-500 mt-2 text-sm">Your AI Code Intelligence Platform</p>
+                <p className="text-zinc-500 mt-2 text-sm">
+                  {isAnalyzing ? `Analyzing ${selectedRepo?.name}...` : 'Your AI Code Intelligence Platform'}
+                </p>
               </div>
 
               <div className="grid grid-cols-12 gap-4">
@@ -318,7 +254,7 @@ export default function Dashboard() {
                 <div className="col-span-12 lg:col-span-5 rounded-3xl p-8 flex flex-col items-center justify-center"
                   style={{ background: 'linear-gradient(145deg,#2d1b69 0%,#1a0f3c 55%,#0f0820 100%)', border: '1px solid rgba(139,92,246,0.3)', minHeight: '230px' }}>
                   <p className="text-xs uppercase tracking-widest text-violet-300/60 font-medium mb-6">Code Quality Score</p>
-                  <CircularGauge value={stats.quality} />
+                  {isAnalyzing ? <Spinner /> : <CircularGauge value={stats.quality} />}
                 </div>
 
                 {/* Summary Analysis */}
@@ -326,17 +262,19 @@ export default function Dashboard() {
                   style={{ background: '#111119', border: '1px solid rgba(255,255,255,0.06)', minHeight: '230px' }}>
                   <div>
                     <h3 className="text-base font-semibold text-white mb-3">Summary Analysis</h3>
-                    {results?.analysis ? (
+                    {isAnalyzing ? (
+                      <Spinner />
+                    ) : results?.analysis ? (
                       <p className="text-zinc-400 text-sm leading-relaxed">
-                        {results.analysis.split('\n').find((l: string) => l.length > 60 && !l.startsWith('#') && !l.startsWith('*')) || 'Analysis complete — switch to the Analysis tab for full details.'}
+                        {results.analysis.split('\n').find((l: string) => l.length > 60 && !l.startsWith('#') && !l.startsWith('*')) || 'Analysis complete.'}
                       </p>
                     ) : (
                       <p className="text-zinc-500 text-sm leading-relaxed">
-                        Select a repository from the left to run an AI analysis. You'll get a full breakdown covering code quality, security vulnerabilities, blast radius, and performance.
+                        Select a repository from the left to run an AI analysis.
                       </p>
                     )}
                   </div>
-                  {results && (
+                  {results && !isAnalyzing && (
                     <button onClick={() => setActiveTab('analysis')} className="text-xs text-violet-400 hover:text-violet-300 transition-colors mt-4 self-start">
                       View full analysis →
                     </button>
@@ -346,20 +284,25 @@ export default function Dashboard() {
                 {/* 4 Stat Cards */}
                 {statCards.map((card, i) => (
                   <div key={i} className="col-span-6 lg:col-span-3 rounded-3xl p-6 flex flex-col justify-between"
-                    style={{ background: card.color.bg, border: `1px solid ${card.color.border}`, minHeight: '155px' }}>
+                    style={{ background: isAnalyzing ? '#111119' : card.color.bg, border: `1px solid ${isAnalyzing ? 'rgba(255,255,255,0.06)' : card.color.border}`, minHeight: '155px', transition: 'background 0.5s, border-color 0.5s' }}>
                     <div className="flex items-center justify-between">
                       <span className="text-xs bg-white/[0.06] text-zinc-300 px-2.5 py-1 rounded-lg font-medium">{card.badge}</span>
-                      <span className="text-xs font-semibold px-2 py-0.5 rounded-md"
-                        style={{ color: card.color.text, background: 'rgba(0,0,0,0.3)' }}>
-                        {card.color.label}
-                      </span>
+                      {!isAnalyzing && (
+                        <span className="text-xs font-semibold px-2 py-0.5 rounded-md" style={{ color: card.color.text, background: 'rgba(0,0,0,0.3)' }}>
+                          {card.color.label}
+                        </span>
+                      )}
                     </div>
-                    <div>
-                      <div className="text-4xl font-bold mt-2" style={{ color: card.color.text }}>
-                        {card.value}<span className="text-base font-normal text-zinc-500 ml-1">{card.unit}</span>
+                    {isAnalyzing ? (
+                      <Spinner />
+                    ) : (
+                      <div>
+                        <div className="text-4xl font-bold mt-2" style={{ color: card.color.text }}>
+                          {card.value}<span className="text-base font-normal text-zinc-500 ml-1">{card.unit}</span>
+                        </div>
+                        <div className="text-xs text-zinc-500 mt-1 leading-relaxed">{card.sub}</div>
                       </div>
-                      <div className="text-xs text-zinc-500 mt-1 leading-relaxed">{card.sub}</div>
-                    </div>
+                    )}
                   </div>
                 ))}
 
@@ -370,7 +313,9 @@ export default function Dashboard() {
                     <div className="w-2 h-2 rounded-full bg-red-400 flex-shrink-0" />
                     <span className="text-xs font-semibold text-red-400 uppercase tracking-widest">Top Priority Fix</span>
                   </div>
-                  {stats.topPriorityFix ? (
+                  {isAnalyzing ? (
+                    <Spinner />
+                  ) : stats.topPriorityFix ? (
                     <>
                       <p className="text-sm font-medium text-zinc-100 mb-1">{stats.topPriorityFix.issue}</p>
                       <p className="text-xs text-violet-400 font-mono mb-3">{stats.topPriorityFix.file}</p>
@@ -387,15 +332,16 @@ export default function Dashboard() {
                 <div className="col-span-12 lg:col-span-6 rounded-3xl p-6"
                   style={{ background: '#111119', border: '1px solid rgba(255,255,255,0.06)' }}>
                   <p className="text-xs font-semibold text-zinc-500 uppercase tracking-widest mb-4">Files Scanned</p>
-                  {stats.scannedFiles.length > 0 ? (
+                  {isAnalyzing ? (
+                    <Spinner />
+                  ) : stats.scannedFiles.length > 0 ? (
                     <div className="space-y-2">
                       {stats.scannedFiles.map((file, i) => {
                         const c = fileStatusColor(file.status);
                         return (
                           <div key={i} className="flex items-center justify-between">
                             <span className="text-xs font-mono text-indigo-400 truncate mr-3">{file.path}</span>
-                            <span className="text-xs px-2 py-0.5 rounded-md flex-shrink-0 font-medium"
-                              style={{ color: c.text, background: c.bg }}>
+                            <span className="text-xs px-2 py-0.5 rounded-md flex-shrink-0 font-medium" style={{ color: c.text, background: c.bg }}>
                               {file.status}
                             </span>
                           </div>
@@ -403,7 +349,7 @@ export default function Dashboard() {
                       })}
                     </div>
                   ) : (
-                    <p className="text-zinc-600 text-sm">Files scanned during analysis will appear here.</p>
+                    <p className="text-zinc-600 text-sm">Files scanned will appear here after analysis.</p>
                   )}
                 </div>
 
@@ -415,10 +361,12 @@ export default function Dashboard() {
             <div>
               <div className="mb-8">
                 <h1 className="text-4xl font-bold tracking-tight">{selectedRepo ? selectedRepo.name : 'Analysis'}</h1>
-                <p className="text-zinc-500 mt-1 text-sm">{results ? 'AI analysis complete' : analyzingRepo ? 'Running analysis...' : 'Select a repository to analyze'}</p>
+                <p className="text-zinc-500 mt-1 text-sm">
+                  {results ? 'AI analysis complete' : isAnalyzing ? 'Running analysis...' : 'Select a repository to analyze'}
+                </p>
               </div>
               <div className="rounded-3xl p-8 min-h-[600px]" style={{ background: '#111119', border: '1px solid rgba(255,255,255,0.06)' }}>
-                {analyzingRepo ? (
+                {isAnalyzing ? (
                   <div className="h-[500px] flex items-center justify-center text-center">
                     <div>
                       <div className="w-10 h-10 border-2 border-violet-500 border-t-transparent rounded-full animate-spin mx-auto mb-6" />
@@ -448,7 +396,11 @@ export default function Dashboard() {
                 <p className="text-zinc-500 mt-1 text-sm">Critical findings from your latest analysis</p>
               </div>
               <div className="rounded-3xl p-8 min-h-[600px]" style={{ background: '#111119', border: '1px solid rgba(255,255,255,0.06)' }}>
-                {results?.analysis ? (
+                {isAnalyzing ? (
+                  <div className="h-[500px] flex items-center justify-center">
+                    <div className="w-10 h-10 border-2 border-violet-500 border-t-transparent rounded-full animate-spin" />
+                  </div>
+                ) : results?.analysis ? (
                   <div className="space-y-3">
                     {results.analysis
                       .split('\n')
