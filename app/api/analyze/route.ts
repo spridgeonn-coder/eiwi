@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import OpenAI from 'openai';
 import { createServerClient } from '@supabase/ssr';
-import { createClient } from '@supabase/supabase-js';
 
 export const maxDuration = 200;
 
@@ -42,24 +41,13 @@ async function fetchDirRecursive(
 
 export async function POST(request: NextRequest) {
   try {
-    // ✅ Admin client created inside function so env vars are guaranteed to be loaded
-    const supabaseAdmin = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
-      {
-        auth: {
-          autoRefreshToken: false,
-          persistSession: false,
-        }
-      }
-    );
-
     const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
       { cookies: { getAll: () => request.cookies.getAll(), setAll: () => {} } }
     );
 
+    // Get user
     let user;
     try {
       const { data, error } = await supabase.auth.getUser();
@@ -69,43 +57,51 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Auth service unavailable" }, { status: 503 });
     }
 
-    const { repoFullName, repoName } = await request.json();
-
-    console.log('ENV CHECK:', {
-      hasSupabaseUrl: !!process.env.NEXT_PUBLIC_SUPABASE_URL,
-      hasServiceKey: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
-      serviceKeyPrefix: process.env.SUPABASE_SERVICE_ROLE_KEY?.slice(0, 10),
-      userId: user.id,
-    });
-
+    // Get session — provider_token lives here
     let token: string | null = null;
     try {
-      const { data: profile, error: profileError } = await supabaseAdmin
-        .from('profile')
-        .select('github_token')
-        .eq('user_id', user.id)
-        .single();
-
-      console.log('Profile fetch result:', {
-        hasProfile: !!profile,
-        hasToken: !!profile?.github_token,
-        profileError: profileError?.message,
-        userId: user.id
-      });
-
-      token = profile?.github_token ?? null;
+      const { data: { session } } = await supabase.auth.getSession();
+      token = session?.provider_token ?? null;
+      console.log('Session token check:', { hasToken: !!token, userId: user.id });
     } catch (e: any) {
-      console.error('Profile fetch exception:', e.message);
-      return NextResponse.json({ error: "Could not load GitHub token: " + e.message }, { status: 500 });
+      console.error('Session fetch failed:', e.message);
     }
 
-    if (!token) return NextResponse.json({ error: "GitHub token missing. Please reconnect GitHub in your profile." }, { status: 401 });
+    // Fall back to profile table if session token not available
+    if (!token) {
+      console.log('No session token, trying profile table...');
+      try {
+        const { data: profile, error: profileError } = await supabase
+          .from('profile')
+          .select('github_token')
+          .eq('user_id', user.id)
+          .single();
 
-    // Rate limiting
+        console.log('Profile fallback:', {
+          hasProfile: !!profile,
+          hasToken: !!profile?.github_token,
+          error: profileError?.message
+        });
+
+        token = profile?.github_token ?? null;
+      } catch (e: any) {
+        console.error('Profile fetch failed:', e.message);
+      }
+    }
+
+    if (!token) {
+      return NextResponse.json({
+        error: "GitHub token missing. Please reconnect GitHub in your profile."
+      }, { status: 401 });
+    }
+
+    const { repoFullName, repoName } = await request.json();
+
+    // Rate limiting using anon client (RLS will scope to current user)
     try {
       const today = new Date();
       today.setHours(0, 0, 0, 0);
-      const { count } = await supabaseAdmin
+      const { count } = await supabase
         .from('analysis_log')
         .select('*', { count: 'exact', head: true })
         .eq('user_id', user.id)
@@ -121,7 +117,7 @@ export async function POST(request: NextRequest) {
     // Check cache
     try {
       const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
-      const { data: cached } = await supabaseAdmin
+      const { data: cached } = await supabase
         .from('analysis_log')
         .select('result')
         .eq('user_id', user.id)
@@ -133,6 +129,7 @@ export async function POST(request: NextRequest) {
         .single();
 
       if (cached?.result) {
+        console.log('Returning cached result');
         return NextResponse.json({ ...cached.result, cached: true });
       }
     } catch {}
@@ -140,7 +137,7 @@ export async function POST(request: NextRequest) {
     // Race condition guard
     try {
       const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
-      const { data: inProgress } = await supabaseAdmin
+      const { data: inProgress } = await supabase
         .from('analysis_log')
         .select('id')
         .eq('user_id', user.id)
@@ -157,7 +154,7 @@ export async function POST(request: NextRequest) {
     // Log as in_progress
     let logId: string | null = null;
     try {
-      const { data: log, error: logError } = await supabaseAdmin
+      const { data: log, error: logError } = await supabase
         .from('analysis_log')
         .insert({
           user_id: user.id,
@@ -168,10 +165,11 @@ export async function POST(request: NextRequest) {
         .select('id')
         .single();
 
-      if (logError) console.error('Failed to insert log:', logError);
+      if (logError) console.error('Failed to insert log:', logError.message);
       logId = log?.id ?? null;
-    } catch (e) {
-      console.error('Log insert exception:', e);
+      console.log('Log created:', { logId, logError: logError?.message });
+    } catch (e: any) {
+      console.error('Log insert exception:', e.message);
     }
 
     const allFiles = await fetchDirRecursive(repoFullName, token);
@@ -302,7 +300,7 @@ Reason: [one sentence naming the specific files and changes driving that estimat
       analysis = completion.choices[0]?.message?.content || "No analysis generated.";
     } catch (openaiError: any) {
       if (logId) {
-        await supabaseAdmin.from('analysis_log').update({ status: 'failed' }).eq('id', logId);
+        await supabase.from('analysis_log').update({ status: 'failed' }).eq('id', logId);
       }
       return NextResponse.json({ error: "AI analysis failed: " + openaiError.message }, { status: 500 });
     }
@@ -364,9 +362,10 @@ Reason: [one sentence naming the specific files and changes driving that estimat
       }
     };
 
+    // Save to DB
     if (logId) {
       try {
-        const { error: updateError } = await supabaseAdmin
+        const { error: updateError } = await supabase
           .from('analysis_log')
           .update({
             status: 'complete',
@@ -375,9 +374,10 @@ Reason: [one sentence naming the specific files and changes driving that estimat
           })
           .eq('id', logId);
 
-        if (updateError) console.error('Failed to update log:', updateError);
-      } catch (e) {
-        console.error('Log update exception:', e);
+        if (updateError) console.error('Failed to update log:', updateError.message);
+        else console.log('Analysis saved to DB successfully');
+      } catch (e: any) {
+        console.error('Log update exception:', e.message);
       }
     }
 
