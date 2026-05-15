@@ -373,8 +373,10 @@ export default function Dashboard() {
   // Parse issues from analysis text
   const parsedIssues = results?.analysis ? parseIssuesFromAnalysis(results.analysis) : [];
   const filteredIssues = issueFilter === 'all'
-    ? parsedIssues
-    : parsedIssues.filter(i => i.severity.toLowerCase() === issueFilter);
+  ? parsedIssues
+  : issueFilter === 'critical'
+  ? parsedIssues.filter(i => /critical|high/i.test(i.severity))
+  : parsedIssues.filter(i => i.severity.toLowerCase() === issueFilter);
 
   const criticalCount = parsedIssues.filter(i => /critical/i.test(i.severity)).length;
   const highCount = parsedIssues.filter(i => /high/i.test(i.severity)).length;
@@ -604,7 +606,7 @@ export default function Dashboard() {
                           border: `1px solid ${issueFilter === f ? 'rgba(167,139,250,0.4)' : 'rgba(255,255,255,0.07)'}`,
                           color: issueFilter === f ? '#c4b5fd' : '#888'
                         }}>
-                        {f === 'all' ? `All (${parsedIssues.length})` : f.charAt(0).toUpperCase() + f.slice(1)}
+                        {f === 'all' ? `All (${parsedIssues.length})` : f === 'critical' ? `Critical / High` : f.charAt(0).toUpperCase() + f.slice(1)}
                       </button>
                     ))}
                   </div>
