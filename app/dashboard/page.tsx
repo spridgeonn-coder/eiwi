@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
 import { Search, User, Clipboard, X, AlertCircle, CheckCircle } from "lucide-react";
 import AnalysisRenderer from '@/components/AnalysisRenderer';
@@ -40,6 +40,82 @@ function Spinner() {
   return (
     <div className="flex items-center justify-center w-full h-full min-h-[80px]">
       <div className="w-7 h-7 border-2 border-violet-500 border-t-transparent rounded-full animate-spin" />
+    </div>
+  );
+}
+
+function AnalysisProgress({ repoName }: { repoName: string }) {
+  const [stepIndex, setStepIndex] = useState(0);
+  const [elapsed, setElapsed] = useState(0);
+
+  const steps = [
+    { message: 'Connecting to GitHub...', duration: 3 },
+    { message: `Fetching files from ${repoName}...`, duration: 5 },
+    { message: 'Reading code across your repository...', duration: 7 },
+    { message: 'Running AI security audit...', duration: 15 },
+    { message: 'Analyzing security vulnerabilities...', duration: 10 },
+    { message: 'Calculating blast radius and tech debt...', duration: 10 },
+    { message: 'Processing results...', duration: 999 },
+  ];
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setElapsed(e => e + 1);
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    let total = 0;
+    for (let i = 0; i < steps.length; i++) {
+      total += steps[i].duration;
+      if (elapsed < total) {
+        setStepIndex(i);
+        break;
+      }
+    }
+  }, [elapsed]);
+
+  const progressPercent = Math.min(95, (elapsed / 50) * 100);
+
+  return (
+    <div className="h-[500px] flex flex-col items-center justify-center text-center px-8">
+      <div className="w-12 h-12 border-2 border-violet-500 border-t-transparent rounded-full animate-spin mx-auto mb-8" />
+
+      <p className="text-xl font-semibold text-white mb-2">Analyzing {repoName}</p>
+      <p className="text-sm text-zinc-500 mb-8" style={{ minHeight: '20px' }}>
+        {steps[stepIndex].message}
+      </p>
+
+      {/* Progress bar */}
+      <div className="w-64 h-1 rounded-full mb-3" style={{ background: 'rgba(255,255,255,0.06)' }}>
+        <div
+          className="h-1 rounded-full transition-all duration-1000"
+          style={{
+            width: `${progressPercent}%`,
+            background: 'linear-gradient(90deg, #a855f7, #7c3aed)',
+          }}
+        />
+      </div>
+
+      <p className="text-xs text-zinc-600">{elapsed}s elapsed</p>
+
+      <div className="mt-10 flex flex-col gap-2 text-left">
+        {steps.slice(0, stepIndex + 1).map((step, i) => (
+          <div key={i} className="flex items-center gap-2.5">
+            <div className={`w-4 h-4 rounded-full flex items-center justify-center flex-shrink-0 ${i < stepIndex ? 'bg-violet-600' : 'border-2 border-violet-500'}`}>
+              {i < stepIndex && (
+                <svg width="8" height="8" viewBox="0 0 8 8" fill="none">
+                  <path d="M1 4L3 6L7 2" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              )}
+            </div>
+            <p className={`text-xs ${i < stepIndex ? 'text-zinc-500' : 'text-zinc-300'}`}>
+              {step.message}
+            </p>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -99,7 +175,6 @@ function parseIssuesFromAnalysis(analysis: string) {
     }
   }
 
-  // Also pull refactoring priorities as medium issues
   const refactoringSection = analysis.match(/\*\*Refactoring Priorities\*\*[^\n]*\n([\s\S]*?)(?=\n\*\*[A-Z]|$)/i);
   if (refactoringSection) {
     const lines = refactoringSection[1].split('\n').filter(l => l.match(/^\d+\./));
@@ -152,9 +227,10 @@ export default function Dashboard() {
   };
 
   useEffect(() => {
+    document.title = 'Dashboard | eiwi';
+
     const init = async () => {
-  document.title = 'Dashboard | eiwi';
-  const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
       if (sessionError || !session) { window.location.href = '/login'; return; }
 
       const { data: { user }, error: userError } = await supabase.auth.getUser();
@@ -371,16 +447,14 @@ export default function Dashboard() {
     </div>
   );
 
-  // Parse issues from analysis text
   const parsedIssues = results?.analysis ? parseIssuesFromAnalysis(results.analysis) : [];
   const filteredIssues = issueFilter === 'all'
-  ? parsedIssues
-  : issueFilter === 'critical'
-  ? parsedIssues.filter(i => /critical|high/i.test(i.severity))
-  : parsedIssues.filter(i => i.severity.toLowerCase() === issueFilter);
+    ? parsedIssues
+    : issueFilter === 'critical'
+    ? parsedIssues.filter(i => /critical|high/i.test(i.severity))
+    : parsedIssues.filter(i => i.severity.toLowerCase() === issueFilter);
 
-  const criticalCount = parsedIssues.filter(i => /critical/i.test(i.severity)).length;
-  const highCount = parsedIssues.filter(i => /high/i.test(i.severity)).length;
+  const criticalCount = parsedIssues.filter(i => /critical|high/i.test(i.severity)).length;
   const mediumCount = parsedIssues.filter(i => /medium/i.test(i.severity)).length;
 
   return (
@@ -548,17 +622,13 @@ export default function Dashboard() {
                   {results ? 'AI analysis complete' : isAnalyzing ? 'Running analysis...' : 'Select a repository to analyze'}
                 </p>
               </div>
-              <div className="rounded-3xl p-8 min-h-[600px]" style={{ background: '#111119', border: '1px solid rgba(255,255,255,0.06)' }}>
+              <div className="rounded-3xl overflow-hidden" style={{ background: '#111119', border: '1px solid rgba(255,255,255,0.06)', minHeight: '600px' }}>
                 {isAnalyzing ? (
-                  <div className="h-[500px] flex items-center justify-center text-center">
-                    <div>
-                      <div className="w-10 h-10 border-2 border-violet-500 border-t-transparent rounded-full animate-spin mx-auto mb-6" />
-                      <p className="text-xl text-white">Analyzing {selectedRepo?.name}...</p>
-                      <p className="text-zinc-500 mt-2 text-sm">Reading your code with AI</p>
-                    </div>
-                  </div>
+                  <AnalysisProgress repoName={selectedRepo?.name || 'repository'} />
                 ) : results ? (
-                  <AnalysisRenderer content={results.analysis} />
+                  <div className="p-8">
+                    <AnalysisRenderer content={results.analysis} />
+                  </div>
                 ) : (
                   <div className="h-[500px] flex items-center justify-center text-center">
                     <div>
@@ -583,10 +653,9 @@ export default function Dashboard() {
 
               {results && parsedIssues.length > 0 && (
                 <>
-                  {/* Summary counts */}
                   <div className="grid grid-cols-3 gap-3 mb-6">
                     {[
-                      { label: 'Critical / High', count: criticalCount + highCount, color: '#f87171', bg: 'rgba(248,113,113,0.08)', border: 'rgba(248,113,113,0.2)' },
+                      { label: 'Critical / High', count: criticalCount, color: '#f87171', bg: 'rgba(248,113,113,0.08)', border: 'rgba(248,113,113,0.2)' },
                       { label: 'Medium', count: mediumCount, color: '#fb923c', bg: 'rgba(251,146,60,0.08)', border: 'rgba(251,146,60,0.2)' },
                       { label: 'Total Issues', count: parsedIssues.length, color: '#a78bfa', bg: 'rgba(167,139,250,0.08)', border: 'rgba(167,139,250,0.2)' },
                     ].map((s, i) => (
@@ -597,7 +666,6 @@ export default function Dashboard() {
                     ))}
                   </div>
 
-                  {/* Filter buttons */}
                   <div className="flex gap-2 mb-6">
                     {(['all', 'critical', 'high', 'medium'] as const).map(f => (
                       <button key={f} onClick={() => setIssueFilter(f)}
@@ -607,7 +675,7 @@ export default function Dashboard() {
                           border: `1px solid ${issueFilter === f ? 'rgba(167,139,250,0.4)' : 'rgba(255,255,255,0.07)'}`,
                           color: issueFilter === f ? '#c4b5fd' : '#888'
                         }}>
-                        {f === 'all' ? `All (${parsedIssues.length})` : f === 'critical' ? `Critical / High` : f.charAt(0).toUpperCase() + f.slice(1)}
+                        {f === 'all' ? `All (${parsedIssues.length})` : f === 'critical' ? 'Critical / High' : f.charAt(0).toUpperCase() + f.slice(1)}
                       </button>
                     ))}
                   </div>
@@ -617,7 +685,7 @@ export default function Dashboard() {
               <div className="space-y-3">
                 {isAnalyzing ? (
                   <div className="h-[400px] flex items-center justify-center">
-                    <Spinner />
+                    <AnalysisProgress repoName={selectedRepo?.name || 'repository'} />
                   </div>
                 ) : filteredIssues.length > 0 ? (
                   filteredIssues.map((issue, i) => {
