@@ -2,7 +2,27 @@
 
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
-import { LogOut, User, GitBranch, Edit, X, Check } from "lucide-react";
+import { LogOut, User, GitBranch, Edit, X, Check, CheckCircle, AlertCircle } from "lucide-react";
+
+function Toast({ message, type, onClose }: { message: string; type: 'error' | 'success'; onClose: () => void }) {
+  useEffect(() => {
+    const t = setTimeout(onClose, 5000);
+    return () => clearTimeout(t);
+  }, [onClose]);
+
+  return (
+    <div className="fixed bottom-6 right-6 z-50 flex items-start gap-3 px-4 py-3 rounded-2xl shadow-lg max-w-sm"
+      style={{ background: type === 'error' ? '#1a0f0f' : '#0f1a0f', border: `1px solid ${type === 'error' ? 'rgba(248,113,113,0.3)' : 'rgba(74,222,128,0.3)'}` }}>
+      {type === 'error'
+        ? <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" />
+        : <CheckCircle className="w-4 h-4 text-green-400 flex-shrink-0 mt-0.5" />}
+      <p className="text-sm leading-relaxed" style={{ color: type === 'error' ? '#fca5a5' : '#86efac' }}>{message}</p>
+      <button onClick={onClose} className="ml-2 flex-shrink-0">
+        <X className="w-3.5 h-3.5 text-zinc-600 hover:text-zinc-400" />
+      </button>
+    </div>
+  );
+}
 
 export default function Profile() {
   const [user, setUser] = useState<any>(null);
@@ -13,20 +33,49 @@ export default function Profile() {
   const [email, setEmail] = useState('');
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [githubConnected, setGithubConnected] = useState(false);
+  const [toast, setToast] = useState<{ message: string; type: 'error' | 'success' } | null>(null);
 
-  useEffect(() => { loadProfile(); }, []);
+  const showToast = (message: string, type: 'error' | 'success' = 'success') => {
+    setToast({ message, type });
+  };
+
+  useEffect(() => {
+    loadProfile();
+
+    // Check if we just came back from a GitHub reconnect
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('reconnected') === 'true') {
+      showToast('GitHub reconnected successfully!', 'success');
+      window.history.replaceState({}, '', '/profile');
+    }
+    if (params.get('error')) {
+      showToast('GitHub reconnection failed. Please try again.', 'error');
+      window.history.replaceState({}, '', '/profile');
+    }
+  }, []);
 
   const loadProfile = async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (user) {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) { window.location.href = '/login'; return; }
       setUser(user);
       setEmail(user.email || '');
-      const { data } = await supabase.from('profile').select('*').eq('user_id', user.id).single();
+
+      const { data } = await supabase
+        .from('profile')
+        .select('*')
+        .eq('user_id', user.id)
+        .single();
+
       if (data) {
         setProfile(data);
         setFirstName(data.first_name || '');
         setLastName(data.last_name || '');
+        setGithubConnected(!!data.github_token);
       }
+    } catch (e) {
+      showToast('Failed to load profile.', 'error');
     }
     setLoading(false);
   };
@@ -34,10 +83,22 @@ export default function Profile() {
   const saveProfile = async () => {
     if (!user) return;
     setSaving(true);
-    await supabase.from('profile').upsert({ user_id: user.id, first_name: firstName, last_name: lastName, updated_at: new Date().toISOString() });
-    if (email !== user.email) await supabase.auth.updateUser({ email });
-    setIsEditing(false);
-    loadProfile();
+    try {
+      await supabase.from('profile').upsert({
+        user_id: user.id,
+        first_name: firstName,
+        last_name: lastName,
+        updated_at: new Date().toISOString()
+      });
+      if (email !== user.email) {
+        await supabase.auth.updateUser({ email });
+      }
+      showToast('Profile saved successfully!', 'success');
+      setIsEditing(false);
+      loadProfile();
+    } catch (e) {
+      showToast('Failed to save profile. Please try again.', 'error');
+    }
     setSaving(false);
   };
 
@@ -49,10 +110,17 @@ export default function Profile() {
   };
 
   const reconnectGitHub = async () => {
-    await supabase.auth.signInWithOAuth({
-      provider: 'github',
-      options: { redirectTo: `${window.location.origin}/profile` },
-    });
+    try {
+      await supabase.auth.signInWithOAuth({
+        provider: 'github',
+        options: {
+          redirectTo: `${window.location.origin}/auth/callback?next=/profile?reconnected=true`,
+          scopes: 'repo read:user',
+        },
+      });
+    } catch (e) {
+      showToast('Failed to start GitHub reconnection.', 'error');
+    }
   };
 
   const handleSignOut = async () => {
@@ -74,7 +142,10 @@ export default function Profile() {
   return (
     <div className="min-h-screen text-white" style={{ background: '#0b0b14' }}>
 
-      {/* Nav */}
+      {toast && (
+        <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />
+      )}
+
       <nav className="border-b border-white/[0.07] bg-black/70 backdrop-blur-xl sticky top-0 z-50">
         <div className="max-w-screen-2xl mx-auto px-8 py-4 flex items-center gap-6">
           <a href="/dashboard" className="flex items-center gap-2.5 mr-4">
@@ -85,13 +156,8 @@ export default function Profile() {
             </div>
             <span className="text-xl font-semibold tracking-tight">eiwi</span>
           </a>
-
           <div className="flex-1" />
-
-          <a href="/dashboard" className="text-sm text-zinc-500 hover:text-zinc-300 transition-colors">
-            Dashboard
-          </a>
-
+          <a href="/dashboard" className="text-sm text-zinc-500 hover:text-zinc-300 transition-colors">Dashboard</a>
           <button
             onClick={handleSignOut}
             className="flex items-center gap-2 text-sm text-zinc-500 hover:text-zinc-300 transition-colors px-3 py-1.5 rounded-xl border border-white/[0.07] hover:border-white/20"
@@ -99,7 +165,6 @@ export default function Profile() {
             <LogOut className="w-4 h-4" />
             Sign out
           </button>
-
           <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-violet-500 to-fuchsia-600 flex items-center justify-center text-xs font-bold shadow-md">
             {displayName.charAt(0).toUpperCase()}
           </div>
@@ -107,7 +172,6 @@ export default function Profile() {
       </nav>
 
       <div className="max-w-3xl mx-auto px-8 py-12">
-
         <h1 className="text-4xl font-bold tracking-tighter mb-1">Profile Settings</h1>
         <p className="text-zinc-500 text-sm mb-10">Manage your account information</p>
 
@@ -172,7 +236,7 @@ export default function Profile() {
                   <button
                     onClick={saveProfile}
                     disabled={saving}
-                    className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-medium transition-all"
+                    className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-medium transition-all text-white"
                     style={{ background: 'linear-gradient(135deg, #a855f7, #7c3aed)', opacity: saving ? 0.7 : 1 }}
                   >
                     <Check className="w-4 h-4" />
@@ -210,14 +274,15 @@ export default function Profile() {
             <GitBranch className="w-4 h-4 text-zinc-500" />
             <span className="text-sm font-semibold text-zinc-300">GitHub Connection</span>
           </div>
-
           <div className="px-8 py-8">
             <div className="flex items-center justify-between p-5 rounded-2xl" style={{ background: '#1a1a28', border: '1px solid rgba(255,255,255,0.06)' }}>
               <div>
                 <p className="text-sm font-medium text-white mb-1">Connected GitHub Account</p>
                 <div className="flex items-center gap-1.5">
-                  <div className="w-1.5 h-1.5 rounded-full bg-green-400" />
-                  <p className="text-xs text-green-400">OAuth connected · Repos accessible</p>
+                  <div className={`w-1.5 h-1.5 rounded-full ${githubConnected ? 'bg-green-400' : 'bg-red-400'}`} />
+                  <p className={`text-xs ${githubConnected ? 'text-green-400' : 'text-red-400'}`}>
+                    {githubConnected ? 'OAuth connected · Repos accessible' : 'Token missing — please reconnect'}
+                  </p>
                 </div>
               </div>
               <button
@@ -232,7 +297,6 @@ export default function Profile() {
             </div>
           </div>
         </div>
-
       </div>
     </div>
   );
