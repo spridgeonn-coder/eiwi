@@ -153,7 +153,8 @@ export default function Dashboard() {
 
   useEffect(() => {
     const init = async () => {
-      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+  document.title = 'Dashboard | eiwi';
+  const { data: { session }, error: sessionError } = await supabase.auth.getSession();
       if (sessionError || !session) { window.location.href = '/login'; return; }
 
       const { data: { user }, error: userError } = await supabase.auth.getUser();
