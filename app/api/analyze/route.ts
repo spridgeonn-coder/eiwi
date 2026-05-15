@@ -1,12 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
 import OpenAI from 'openai';
 import { createServerClient } from '@supabase/ssr';
+import { createClient } from '@supabase/supabase-js';
 
 export const maxDuration = 200;
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
+
+// ✅ Service role client — bypasses RLS for server-side DB writes
+const supabaseAdmin = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+);
 
 async function fetchDirRecursive(
   repoFullName: string,
@@ -41,13 +48,13 @@ async function fetchDirRecursive(
 
 export async function POST(request: NextRequest) {
   try {
+    // Use cookie-based client only for auth verification
     const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
       { cookies: { getAll: () => request.cookies.getAll(), setAll: () => {} } }
     );
 
-    // ✅ Fix 1: Proper error handling on auth
     let user;
     try {
       const { data, error } = await supabase.auth.getUser();
@@ -59,10 +66,10 @@ export async function POST(request: NextRequest) {
 
     const { repoFullName, repoName } = await request.json();
 
-    // ✅ Fix 2: Always load token from DB — never trust the request header
+    // Load token from DB using admin client
     let token: string | null = null;
     try {
-      const { data: profile } = await supabase
+      const { data: profile } = await supabaseAdmin
         .from('profile')
         .select('github_token')
         .eq('user_id', user.id)
@@ -74,11 +81,11 @@ export async function POST(request: NextRequest) {
 
     if (!token) return NextResponse.json({ error: "GitHub token missing. Please reconnect GitHub in your profile." }, { status: 401 });
 
-    // ✅ Fix 3: Rate limiting — max 10 analyses per user per day
+    // Rate limiting — max 10 analyses per user per day
     try {
       const today = new Date();
       today.setHours(0, 0, 0, 0);
-      const { count } = await supabase
+      const { count } = await supabaseAdmin
         .from('analysis_log')
         .select('*', { count: 'exact', head: true })
         .eq('user_id', user.id)
@@ -89,18 +96,17 @@ export async function POST(request: NextRequest) {
           error: "Daily limit reached. You can run 10 analyses per day. Upgrade to Pro for unlimited analyses."
         }, { status: 429 });
       }
-    } catch {
-      // If the log table doesn't exist yet, continue anyway
-    }
+    } catch {}
 
-    // ✅ Fix 4: Check if we already have a recent analysis for this repo (within 1 hour)
+    // Check cache — return existing result if analyzed within last hour
     try {
       const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
-      const { data: cached } = await supabase
+      const { data: cached } = await supabaseAdmin
         .from('analysis_log')
         .select('result')
         .eq('user_id', user.id)
         .eq('repo_full_name', repoFullName)
+        .eq('status', 'complete')
         .gte('created_at', oneHourAgo)
         .order('created_at', { ascending: false })
         .limit(1)
@@ -109,14 +115,12 @@ export async function POST(request: NextRequest) {
       if (cached?.result) {
         return NextResponse.json({ ...cached.result, cached: true });
       }
-    } catch {
-      // No cache found, continue with fresh analysis
-    }
+    } catch {}
 
-    // ✅ Fix 5: Race condition guard — mark repo as being analyzed
+    // Race condition guard
     try {
       const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
-      const { data: inProgress } = await supabase
+      const { data: inProgress } = await supabaseAdmin
         .from('analysis_log')
         .select('id')
         .eq('user_id', user.id)
@@ -128,14 +132,12 @@ export async function POST(request: NextRequest) {
       if (inProgress) {
         return NextResponse.json({ error: "Analysis already in progress for this repo." }, { status: 409 });
       }
-    } catch {
-      // No in-progress analysis found, continue
-    }
+    } catch {}
 
-    // Log the analysis as in_progress
+    // Log as in_progress
     let logId: string | null = null;
     try {
-      const { data: log } = await supabase
+      const { data: log, error: logError } = await supabaseAdmin
         .from('analysis_log')
         .insert({
           user_id: user.id,
@@ -145,9 +147,11 @@ export async function POST(request: NextRequest) {
         })
         .select('id')
         .single();
+
+      if (logError) console.error('Failed to insert log:', logError);
       logId = log?.id ?? null;
-    } catch {
-      // Continue even if logging fails
+    } catch (e) {
+      console.error('Log insert exception:', e);
     }
 
     const allFiles = await fetchDirRecursive(repoFullName, token);
@@ -277,9 +281,8 @@ Reason: [one sentence naming the specific files and changes driving that estimat
       });
       analysis = completion.choices[0]?.message?.content || "No analysis generated.";
     } catch (openaiError: any) {
-      // Mark log as failed
       if (logId) {
-        await supabase.from('analysis_log').update({ status: 'failed' }).eq('id', logId);
+        await supabaseAdmin.from('analysis_log').update({ status: 'failed' }).eq('id', logId);
       }
       return NextResponse.json({ error: "AI analysis failed: " + openaiError.message }, { status: 500 });
     }
@@ -342,10 +345,10 @@ Reason: [one sentence naming the specific files and changes driving that estimat
       }
     };
 
-    // ✅ Fix 6: Save result to DB and mark as complete
+    // Save result and mark complete
     if (logId) {
       try {
-        await supabase
+        const { error: updateError } = await supabaseAdmin
           .from('analysis_log')
           .update({
             status: 'complete',
@@ -353,8 +356,10 @@ Reason: [one sentence naming the specific files and changes driving that estimat
             completed_at: new Date().toISOString(),
           })
           .eq('id', logId);
-      } catch {
-        // Non-fatal if logging fails
+
+        if (updateError) console.error('Failed to update log:', updateError);
+      } catch (e) {
+        console.error('Log update exception:', e);
       }
     }
 
