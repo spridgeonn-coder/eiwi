@@ -89,6 +89,12 @@ export default function Login() {
         <p className="text-zinc-700 text-xs mt-8">
           You'll be redirected to GitHub to authorize eiwi
         </p>
+        <p className="text-zinc-700 text-xs mt-3">
+          By signing in you agree to our{' '}
+          <a href="/terms" className="text-zinc-500 hover:text-zinc-300 underline transition-colors">Terms of Service</a>
+          {' '}and{' '}
+          <a href="/privacy" className="text-zinc-500 hover:text-zinc-300 underline transition-colors">Privacy Policy</a>
+        </p>
 
       </div>
     </div>
