@@ -9,7 +9,6 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-// ✅ Service role client — bypasses RLS for server-side DB writes
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -48,7 +47,6 @@ async function fetchDirRecursive(
 
 export async function POST(request: NextRequest) {
   try {
-    // Use cookie-based client only for auth verification
     const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -66,22 +64,38 @@ export async function POST(request: NextRequest) {
 
     const { repoFullName, repoName } = await request.json();
 
-    // Load token from DB using admin client
+    // Debug: log environment variable presence
+    console.log('ENV CHECK:', {
+      hasSupabaseUrl: !!process.env.NEXT_PUBLIC_SUPABASE_URL,
+      hasServiceKey: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
+      serviceKeyPrefix: process.env.SUPABASE_SERVICE_ROLE_KEY?.slice(0, 10),
+      userId: user.id,
+    });
+
     let token: string | null = null;
     try {
-      const { data: profile } = await supabaseAdmin
+      const { data: profile, error: profileError } = await supabaseAdmin
         .from('profile')
         .select('github_token')
         .eq('user_id', user.id)
         .single();
+
+      console.log('Profile fetch result:', {
+        hasProfile: !!profile,
+        hasToken: !!profile?.github_token,
+        profileError: profileError?.message,
+        userId: user.id
+      });
+
       token = profile?.github_token ?? null;
-    } catch {
-      return NextResponse.json({ error: "Could not load GitHub token" }, { status: 500 });
+    } catch (e: any) {
+      console.error('Profile fetch exception:', e.message);
+      return NextResponse.json({ error: "Could not load GitHub token: " + e.message }, { status: 500 });
     }
 
     if (!token) return NextResponse.json({ error: "GitHub token missing. Please reconnect GitHub in your profile." }, { status: 401 });
 
-    // Rate limiting — max 10 analyses per user per day
+    // Rate limiting
     try {
       const today = new Date();
       today.setHours(0, 0, 0, 0);
@@ -98,7 +112,7 @@ export async function POST(request: NextRequest) {
       }
     } catch {}
 
-    // Check cache — return existing result if analyzed within last hour
+    // Check cache
     try {
       const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
       const { data: cached } = await supabaseAdmin
@@ -287,7 +301,6 @@ Reason: [one sentence naming the specific files and changes driving that estimat
       return NextResponse.json({ error: "AI analysis failed: " + openaiError.message }, { status: 500 });
     }
 
-    // Parse structured data
     const qualityMatch = analysis.match(/Code Quality[^\d]*(\d+)\s*\/\s*10/i);
     const qualityScore = qualityMatch ? Math.round(parseInt(qualityMatch[1]) * 10) : 75;
 
@@ -345,7 +358,6 @@ Reason: [one sentence naming the specific files and changes driving that estimat
       }
     };
 
-    // Save result and mark complete
     if (logId) {
       try {
         const { error: updateError } = await supabaseAdmin
