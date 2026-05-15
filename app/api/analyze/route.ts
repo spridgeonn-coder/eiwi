@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import OpenAI from 'openai';
+import Anthropic from '@anthropic-ai/sdk';
 import { createServerClient } from '@supabase/ssr';
 
 export const maxDuration = 200;
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
+const anthropic = new Anthropic({
+  apiKey: process.env.ANTHROPIC_API_KEY,
 });
 
 async function fetchDirRecursive(
@@ -47,7 +47,6 @@ export async function POST(request: NextRequest) {
       { cookies: { getAll: () => request.cookies.getAll(), setAll: () => {} } }
     );
 
-    // Get user
     let user;
     try {
       const { data, error } = await supabase.auth.getUser();
@@ -57,47 +56,31 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Auth service unavailable" }, { status: 503 });
     }
 
-    // Get session — provider_token lives here
+    // Get GitHub token from session first, fall back to profile table
     let token: string | null = null;
     try {
       const { data: { session } } = await supabase.auth.getSession();
       token = session?.provider_token ?? null;
-      console.log('Session token check:', { hasToken: !!token, userId: user.id });
-    } catch (e: any) {
-      console.error('Session fetch failed:', e.message);
-    }
+    } catch {}
 
-    // Fall back to profile table if session token not available
     if (!token) {
-      console.log('No session token, trying profile table...');
       try {
-        const { data: profile, error: profileError } = await supabase
+        const { data: profile } = await supabase
           .from('profile')
           .select('github_token')
           .eq('user_id', user.id)
           .single();
-
-        console.log('Profile fallback:', {
-          hasProfile: !!profile,
-          hasToken: !!profile?.github_token,
-          error: profileError?.message
-        });
-
         token = profile?.github_token ?? null;
-      } catch (e: any) {
-        console.error('Profile fetch failed:', e.message);
-      }
+      } catch {}
     }
 
-    if (!token) {
-      return NextResponse.json({
-        error: "GitHub token missing. Please reconnect GitHub in your profile."
-      }, { status: 401 });
-    }
+    if (!token) return NextResponse.json({
+      error: "GitHub token missing. Please reconnect GitHub in your profile."
+    }, { status: 401 });
 
     const { repoFullName, repoName } = await request.json();
 
-    // Rate limiting using anon client (RLS will scope to current user)
+    // Rate limiting — 10 per day
     try {
       const today = new Date();
       today.setHours(0, 0, 0, 0);
@@ -114,7 +97,7 @@ export async function POST(request: NextRequest) {
       }
     } catch {}
 
-    // Check cache
+    // Check cache — return if analyzed within last hour
     try {
       const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
       const { data: cached } = await supabase
@@ -129,7 +112,6 @@ export async function POST(request: NextRequest) {
         .single();
 
       if (cached?.result) {
-        console.log('Returning cached result');
         return NextResponse.json({ ...cached.result, cached: true });
       }
     } catch {}
@@ -167,9 +149,8 @@ export async function POST(request: NextRequest) {
 
       if (logError) console.error('Failed to insert log:', logError.message);
       logId = log?.id ?? null;
-      console.log('Log created:', { logId, logError: logError?.message });
-    } catch (e: any) {
-      console.error('Log insert exception:', e.message);
+    } catch (e) {
+      console.error('Log insert exception:', e);
     }
 
     const allFiles = await fetchDirRecursive(repoFullName, token);
@@ -221,16 +202,16 @@ export async function POST(request: NextRequest) {
       } catch (_) {}
     }
 
+    // ✅ Claude with prompt caching to reduce costs
     let analysis = "No analysis generated.";
     try {
-      const completion = await openai.chat.completions.create({
-        model: "gpt-4o",
-        temperature: 0.1,
-        max_tokens: 4000,
-        messages: [
+      const response = await anthropic.messages.create({
+        model: "claude-sonnet-4-5",
+        max_tokens: 3000,
+        system: [
           {
-            role: "system",
-            content: `You are a principal engineer at a FAANG company doing a paid code security and architecture audit. Your reviews are legendary for being brutally specific, technically deep, and immediately actionable.
+            type: "text",
+            text: `You are a principal engineer at a FAANG company doing a paid code security and architecture audit. Your reviews are legendary for being brutally specific, technically deep, and immediately actionable.
 
 You do not give generic advice. Every single point you make references exact line patterns, exact variable names, and exact file paths from the code provided to you.
 
@@ -238,8 +219,12 @@ You never say things like "add comments", "use useCallback", or "add error handl
 
 If a section has no real issues, skip it or say the code is clean there. No padding, no obvious advice, no fluff. A senior engineer reading this should learn something they didn't already know.
 
-When you find issues, you explain the full exploit chain — not just "this is a risk" but exactly how it would be exploited and what the blast radius is.`
-          },
+When you find issues, you explain the full exploit chain — not just "this is a risk" but exactly how it would be exploited and what the blast radius is.`,
+            // ✅ Cache the system prompt — saves tokens on every repeated call
+            cache_control: { type: "ephemeral" }
+          }
+        ],
+        messages: [
           {
             role: "user",
             content: `Do a paid-tier principal engineer audit of this repository. Every observation must reference the exact file and exact code pattern you saw. Do not give advice that isn't directly tied to something you read in the code below.
@@ -297,14 +282,28 @@ Reason: [one sentence naming the specific files and changes driving that estimat
           }
         ],
       });
-      analysis = completion.choices[0]?.message?.content || "No analysis generated.";
-    } catch (openaiError: any) {
+
+      analysis = response.content
+        .filter((block: any) => block.type === 'text')
+        .map((block: any) => block.text)
+        .join('\n');
+
+      // Log token usage for monitoring
+      console.log('Claude token usage:', {
+        input: response.usage.input_tokens,
+        output: response.usage.output_tokens,
+        cacheRead: (response.usage as any).cache_read_input_tokens ?? 0,
+        cacheCreated: (response.usage as any).cache_creation_input_tokens ?? 0,
+      });
+
+    } catch (claudeError: any) {
       if (logId) {
         await supabase.from('analysis_log').update({ status: 'failed' }).eq('id', logId);
       }
-      return NextResponse.json({ error: "AI analysis failed: " + openaiError.message }, { status: 500 });
+      return NextResponse.json({ error: "AI analysis failed: " + claudeError.message }, { status: 500 });
     }
 
+    // Parse structured data
     const qualityMatch = analysis.match(/Code Quality[^\d]*(\d+)\s*\/\s*10/i);
     const qualityScore = qualityMatch ? Math.round(parseInt(qualityMatch[1]) * 10) : 75;
 
@@ -362,7 +361,7 @@ Reason: [one sentence naming the specific files and changes driving that estimat
       }
     };
 
-    // Save to DB
+    // Save result and mark complete
     if (logId) {
       try {
         const { error: updateError } = await supabase
@@ -375,7 +374,7 @@ Reason: [one sentence naming the specific files and changes driving that estimat
           .eq('id', logId);
 
         if (updateError) console.error('Failed to update log:', updateError.message);
-        else console.log('Analysis saved to DB successfully');
+        else console.log('Analysis saved successfully');
       } catch (e: any) {
         console.error('Log update exception:', e.message);
       }
