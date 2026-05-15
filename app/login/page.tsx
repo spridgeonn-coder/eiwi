@@ -6,6 +6,7 @@ import { ArrowLeft } from "lucide-react";
 
 export default function Login() {
   const [loading, setLoading] = useState(false);
+  const [agreed, setAgreed] = useState(false);
 
   useEffect(() => {
     document.title = 'Sign In | eiwi';
@@ -15,7 +16,7 @@ export default function Login() {
   }, []);
 
   const handleGitHubLogin = async () => {
-    if (loading) return;
+    if (loading || !agreed) return;
     setLoading(true);
     try {
       await supabase.auth.signInWithOAuth({
@@ -50,25 +51,79 @@ export default function Login() {
         <h1 className="text-4xl font-bold tracking-tight text-white mb-2">Welcome to eiwi</h1>
         <p className="text-zinc-500 text-sm mb-10">AI-powered code intelligence for your repos</p>
 
+        {/* Trust indicators */}
+        <div className="mb-8 p-4 rounded-2xl text-left space-y-2.5"
+          style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)' }}>
+          {[
+            { icon: '🔒', text: 'Read-only access — we never modify your code' },
+            { icon: '🤖', text: 'Code is sent to OpenAI for analysis only' },
+            { icon: '🗑️', text: 'Source files are never stored on our servers' },
+          ].map((item, i) => (
+            <div key={i} className="flex items-start gap-3">
+              <span className="text-sm flex-shrink-0">{item.icon}</span>
+              <p className="text-xs text-zinc-400 leading-relaxed">{item.text}</p>
+            </div>
+          ))}
+        </div>
+
+        {/* Checkbox agreement */}
+        <label className="flex items-start gap-3 mb-6 cursor-pointer text-left">
+          <div className="relative flex-shrink-0 mt-0.5">
+            <input
+              type="checkbox"
+              checked={agreed}
+              onChange={e => setAgreed(e.target.checked)}
+              className="sr-only"
+            />
+            <div
+              onClick={() => setAgreed(a => !a)}
+              className="w-5 h-5 rounded-md border flex items-center justify-center transition-all"
+              style={{
+                background: agreed ? 'linear-gradient(135deg, #a855f7, #7c3aed)' : 'transparent',
+                borderColor: agreed ? '#a855f7' : 'rgba(255,255,255,0.2)',
+              }}
+            >
+              {agreed && (
+                <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                  <path d="M1.5 5L4 7.5L8.5 2.5" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              )}
+            </div>
+          </div>
+          <span className="text-xs text-zinc-400 leading-relaxed">
+            I agree to the{' '}
+            <a href="/terms" target="_blank" className="text-violet-400 hover:text-violet-300 underline transition-colors">
+              Terms of Service
+            </a>
+            {' '}and{' '}
+            <a href="/privacy" target="_blank" className="text-violet-400 hover:text-violet-300 underline transition-colors">
+              Privacy Policy
+            </a>
+            , and understand that my code will be sent to OpenAI for analysis.
+          </span>
+        </label>
+
         <button
           onClick={handleGitHubLogin}
-          disabled={loading}
+          disabled={loading || !agreed}
           className="w-full flex items-center justify-center gap-3 px-6 py-4 rounded-2xl text-white text-sm font-medium transition-all"
           style={{
-            background: '#111119',
-            border: '1px solid rgba(255,255,255,0.08)',
+            background: agreed ? '#111119' : 'rgba(255,255,255,0.03)',
+            border: `1px solid ${agreed ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.04)'}`,
             opacity: loading ? 0.7 : 1,
-            cursor: loading ? 'not-allowed' : 'pointer',
+            cursor: !agreed || loading ? 'not-allowed' : 'pointer',
           }}
           onMouseEnter={e => {
-            if (!loading) {
+            if (!loading && agreed) {
               (e.currentTarget as HTMLButtonElement).style.borderColor = 'rgba(168,85,247,0.4)';
               (e.currentTarget as HTMLButtonElement).style.background = '#1a1a28';
             }
           }}
           onMouseLeave={e => {
-            (e.currentTarget as HTMLButtonElement).style.borderColor = 'rgba(255,255,255,0.08)';
-            (e.currentTarget as HTMLButtonElement).style.background = '#111119';
+            if (agreed) {
+              (e.currentTarget as HTMLButtonElement).style.borderColor = 'rgba(255,255,255,0.08)';
+              (e.currentTarget as HTMLButtonElement).style.background = '#111119';
+            }
           }}
         >
           {loading ? (
@@ -78,22 +133,16 @@ export default function Login() {
             </>
           ) : (
             <>
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="white">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill={agreed ? 'white' : '#555'}>
                 <path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"/>
               </svg>
-              Continue with GitHub
+              <span style={{ color: agreed ? 'white' : '#555' }}>Continue with GitHub</span>
             </>
           )}
         </button>
 
-        <p className="text-zinc-700 text-xs mt-8">
+        <p className="text-zinc-700 text-xs mt-6">
           You'll be redirected to GitHub to authorize eiwi
-        </p>
-        <p className="text-zinc-700 text-xs mt-3">
-          By signing in you agree to our{' '}
-          <a href="/terms" className="text-zinc-500 hover:text-zinc-300 underline transition-colors">Terms of Service</a>
-          {' '}and{' '}
-          <a href="/privacy" className="text-zinc-500 hover:text-zinc-300 underline transition-colors">Privacy Policy</a>
         </p>
 
       </div>
