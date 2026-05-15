@@ -6,9 +6,20 @@ import remarkGfm from 'remark-gfm';
 
 function parseSection(content: string, heading: string): string {
   const escaped = heading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const regex = new RegExp(`\\*\\*${escaped}\\*\\*[^\\n]*\\n([\\s\\S]*?)(?=\\n\\*\\*[A-Z]|$)`);
-  const match = content.match(regex);
-  return match ? match[1].trim() : '';
+
+  // Try ## heading format (Claude)
+  const hashMatch = content.match(
+    new RegExp(`##\\s+${escaped}[^\\n]*\\n([\\s\\S]*?)(?=\\n##\\s|\\n#\\s|$)`)
+  );
+  if (hashMatch) return hashMatch[1].trim();
+
+  // Try **bold** format (OpenAI fallback)
+  const boldMatch = content.match(
+    new RegExp(`\\*\\*${escaped}\\*\\*[^\\n]*\\n([\\s\\S]*?)(?=\\n\\*\\*[A-Z]|$)`)
+  );
+  if (boldMatch) return boldMatch[1].trim();
+
+  return '';
 }
 
 function parseSeverityBadge(text: string): { label: string; color: string; bg: string; border: string } {
@@ -20,19 +31,28 @@ function parseSeverityBadge(text: string): { label: string; color: string; bg: s
 
 function parseRisks(text: string) {
   const issues: { file: string; title: string; desc: string; fix: string; severity: string }[] = [];
-  const blocks = text.split(/(?=- \*\*Risk level)/i).filter(b => b.trim());
+
+  // Split on numbered list items like "### 1." or "- **Risk level"
+  const blocks = text.split(/(?=###\s+\d+\.|(?=- \*\*Risk level))/i).filter(b => b.trim());
+
   for (const block of blocks) {
-    const severityMatch = block.match(/Risk level:\s*\*?\*?([^\*\n]+)\*?\*?/i);
-    const fileMatch = block.match(/File \+ pattern:\s*`?([^`\n]+)`?/i);
-    const attackMatch = block.match(/Attack vector:\s*([^\n]+)/i);
-    const impactMatch = block.match(/Production impact:\s*([^\n]+)/i);
-    const fixMatch = block.match(/Fix:\s*([\s\S]+?)(?=\n- \*\*Risk|\n\n\*\*|$)/i);
-    if (severityMatch) {
+    const severityMatch = block.match(/\*\*Risk level:\*?\*?\s*([^\*\n]+)/i)
+      || block.match(/Risk level:\s*\*?\*?([^\*\n]+)\*?\*?/i);
+    const fileMatch = block.match(/\*\*File \+ pattern:\*?\*?\s*`?([^`\n]+)`?/i)
+      || block.match(/File \+ pattern:\s*`?([^`\n]+)`?/i);
+    const attackMatch = block.match(/\*\*Attack vector:\*?\*?\s*([\s\S]+?)(?=\n-\s*\*\*|\n###|$)/i)
+      || block.match(/Attack vector:\s*([^\n]+)/i);
+    const impactMatch = block.match(/\*\*Production impact:\*?\*?\s*([\s\S]+?)(?=\n-\s*\*\*|\n###|$)/i)
+      || block.match(/Production impact:\s*([^\n]+)/i);
+    const fixMatch = block.match(/\*\*Fix:\*?\*?\s*([\s\S]+?)(?=\n###\s+\d+\.|$)/i)
+      || block.match(/Fix:\s*([\s\S]+?)(?=\n- \*\*Risk|\n\n\*\*|$)/i);
+
+    if (severityMatch || fileMatch) {
       issues.push({
-        severity: severityMatch[1]?.trim() || 'High',
+        severity: severityMatch?.[1]?.trim() || 'High',
         file: fileMatch?.[1]?.trim().replace(/`/g, '') || '',
-        title: attackMatch?.[1]?.trim() || '',
-        desc: impactMatch?.[1]?.trim() || '',
+        title: attackMatch?.[1]?.trim().split('\n')[0] || '',
+        desc: impactMatch?.[1]?.trim().split('\n')[0] || '',
         fix: fixMatch?.[1]?.trim() || '',
       });
     }
@@ -44,7 +64,8 @@ function parseKeyValueSection(text: string) {
   const items: { file: string; issue: string; fix: string }[] = [];
   const blocks = text.split(/(?=\n?[-\d]+\.?\s*\*\*File|\n?[-\d]+\.?\s*`)/i).filter(b => b.trim());
   for (const block of blocks) {
-    const fileMatch = block.match(/\*\*File:\*\*\s*`?([^`\n]+)`?/i) || block.match(/`([^`\n]+\.(?:tsx?|jsx?|md|json))`/i);
+    const fileMatch = block.match(/\*\*File:\*\*\s*`?([^`\n]+)`?/i)
+      || block.match(/`([^`\n]+\.(?:tsx?|jsx?|md|json))`/i);
     const issueMatch = block.match(/\*\*(?:Current code|Issue|Pattern):\*\*\s*([^\n]+)/i);
     const fixMatch = block.match(/\*\*(?:Replacement|Fix):\*\*\s*([^\n]+)/i);
     if (fileMatch) {
@@ -78,7 +99,6 @@ function CollapsibleSection({
   children?: React.ReactNode;
 }) {
   const [open, setOpen] = useState(false);
-
   return (
     <div style={{ marginBottom: '10px', borderRadius: '14px', overflow: 'hidden', background: '#16161f', border: '1px solid rgba(255,255,255,0.09)' }}>
       <button
@@ -92,10 +112,8 @@ function CollapsibleSection({
             {badge}
           </span>
         )}
-        <svg
-          width="14" height="14" viewBox="0 0 14 14" fill="none"
-          style={{ marginLeft: badge ? '0' : 'auto', transition: 'transform 0.2s', transform: open ? 'rotate(180deg)' : 'rotate(0deg)', flexShrink: 0 }}
-        >
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none"
+          style={{ marginLeft: badge ? '0' : 'auto', transition: 'transform 0.2s', transform: open ? 'rotate(180deg)' : 'rotate(0deg)', flexShrink: 0 }}>
           <path d="M2 5L7 10L12 5" stroke="#555" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
         </svg>
       </button>
@@ -159,6 +177,9 @@ function SimpleMarkdown({ text }: { text: string }) {
           ul: ({ children }) => <ul style={{ paddingLeft: '18px', margin: '0 0 10px' }}>{children}</ul>,
           ol: ({ children }) => <ol style={{ paddingLeft: '18px', margin: '0 0 10px' }}>{children}</ol>,
           strong: ({ children }) => <strong style={{ color: '#f0f0f5', fontWeight: 600 }}>{children}</strong>,
+          h1: ({ children }) => <h1 style={{ fontSize: '16px', fontWeight: 700, color: '#f0f0f5', margin: '16px 0 8px' }}>{children}</h1>,
+          h2: ({ children }) => <h2 style={{ fontSize: '14px', fontWeight: 700, color: '#f0f0f5', margin: '14px 0 6px' }}>{children}</h2>,
+          h3: ({ children }) => <h3 style={{ fontSize: '13px', fontWeight: 700, color: '#f0f0f5', margin: '12px 0 6px' }}>{children}</h3>,
           code: ({ children }) => (
             <code style={{ fontSize: '11px', fontFamily: 'monospace', color: '#c4b5fd', background: 'rgba(167,139,250,0.12)', border: '1px solid rgba(167,139,250,0.2)', padding: '2px 7px', borderRadius: '5px' }}>{children}</code>
           ),
@@ -176,23 +197,34 @@ function SimpleMarkdown({ text }: { text: string }) {
 export default function AnalysisRenderer({ content }: { content: string }) {
   if (!content) return null;
 
+  // Try Claude's ## heading format first, then OpenAI's **bold** format
   const execSummary   = parseSection(content, 'Executive Summary');
   const criticalRisks = parseSection(content, 'Critical / High Risks');
-  const architecture  = parseSection(content, 'Architecture & Design Issues');
-  const security      = parseSection(content, 'Security & Auth Review');
-  const performance   = parseSection(content, 'Performance & Reliability');
-  const codeQuality   = parseSection(content, 'Code Quality[^\\n]*');
-  const refactoring   = parseSection(content, 'Refactoring Priorities');
+  const architecture  = parseSection(content, 'Architecture & Design Issues') || parseSection(content, 'Architecture');
+  const security      = parseSection(content, 'Security & Auth Review') || parseSection(content, 'Security');
+  const performance   = parseSection(content, 'Performance & Reliability') || parseSection(content, 'Performance');
+  const codeQuality   = parseSection(content, 'Code Quality[^\\n]*') || parseSection(content, 'Code Quality');
+  const refactoring   = parseSection(content, 'Refactoring Priorities') || parseSection(content, 'Refactoring');
   const quickWins     = parseSection(content, 'Quick Wins');
-  const whatsGood     = parseSection(content, "What's Actually Good");
+  const whatsGood     = parseSection(content, "What's Actually Good") || parseSection(content, "What's Good");
 
   const risks      = parseRisks(criticalRisks);
   const quickItems = parseKeyValueSection(quickWins);
   const goodItems  = parseKeyValueSection(whatsGood);
 
+  // If we can't parse sections, render the whole thing as markdown
+  const hasSections = execSummary || criticalRisks || architecture || security || performance || codeQuality;
+
+  if (!hasSections) {
+    return (
+      <div style={{ fontFamily: 'sans-serif' }}>
+        <SimpleMarkdown text={content} />
+      </div>
+    );
+  }
+
   return (
     <div style={{ fontFamily: 'sans-serif' }}>
-
       {execSummary && (
         <CollapsibleSection dot="#f87171" title="Executive Summary">
           <div style={{ padding: '18px 20px' }}>
@@ -258,7 +290,6 @@ export default function AnalysisRenderer({ content }: { content: string }) {
             : <SimpleMarkdown text={whatsGood} />}
         </CollapsibleSection>
       )}
-
     </div>
   );
 }
