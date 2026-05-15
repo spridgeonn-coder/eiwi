@@ -47,22 +47,111 @@ export async function POST(request: NextRequest) {
       { cookies: { getAll: () => request.cookies.getAll(), setAll: () => {} } }
     );
 
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    // ✅ Fix 1: Proper error handling on auth
+    let user;
+    try {
+      const { data, error } = await supabase.auth.getUser();
+      if (error || !data.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      user = data.user;
+    } catch {
+      return NextResponse.json({ error: "Auth service unavailable" }, { status: 503 });
+    }
 
     const { repoFullName, repoName } = await request.json();
 
-    let token = request.headers.get('authorization')?.replace('Bearer ', '');
-    if (!token) {
-      const { data: profile } = await supabase.from('profile').select('github_token').eq('user_id', user.id).single();
-      token = profile?.github_token;
+    // ✅ Fix 2: Always load token from DB — never trust the request header
+    let token: string | null = null;
+    try {
+      const { data: profile } = await supabase
+        .from('profile')
+        .select('github_token')
+        .eq('user_id', user.id)
+        .single();
+      token = profile?.github_token ?? null;
+    } catch {
+      return NextResponse.json({ error: "Could not load GitHub token" }, { status: 500 });
     }
-    if (!token) return NextResponse.json({ error: "GitHub token missing" }, { status: 401 });
 
-    // Recursively fetch all files in the repo
+    if (!token) return NextResponse.json({ error: "GitHub token missing. Please reconnect GitHub in your profile." }, { status: 401 });
+
+    // ✅ Fix 3: Rate limiting — max 10 analyses per user per day
+    try {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const { count } = await supabase
+        .from('analysis_log')
+        .select('*', { count: 'exact', head: true })
+        .eq('user_id', user.id)
+        .gte('created_at', today.toISOString());
+
+      if ((count ?? 0) >= 10) {
+        return NextResponse.json({
+          error: "Daily limit reached. You can run 10 analyses per day. Upgrade to Pro for unlimited analyses."
+        }, { status: 429 });
+      }
+    } catch {
+      // If the log table doesn't exist yet, continue anyway
+    }
+
+    // ✅ Fix 4: Check if we already have a recent analysis for this repo (within 1 hour)
+    try {
+      const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+      const { data: cached } = await supabase
+        .from('analysis_log')
+        .select('result')
+        .eq('user_id', user.id)
+        .eq('repo_full_name', repoFullName)
+        .gte('created_at', oneHourAgo)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single();
+
+      if (cached?.result) {
+        return NextResponse.json({ ...cached.result, cached: true });
+      }
+    } catch {
+      // No cache found, continue with fresh analysis
+    }
+
+    // ✅ Fix 5: Race condition guard — mark repo as being analyzed
+    try {
+      const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+      const { data: inProgress } = await supabase
+        .from('analysis_log')
+        .select('id')
+        .eq('user_id', user.id)
+        .eq('repo_full_name', repoFullName)
+        .eq('status', 'in_progress')
+        .gte('created_at', fiveMinutesAgo)
+        .single();
+
+      if (inProgress) {
+        return NextResponse.json({ error: "Analysis already in progress for this repo." }, { status: 409 });
+      }
+    } catch {
+      // No in-progress analysis found, continue
+    }
+
+    // Log the analysis as in_progress
+    let logId: string | null = null;
+    try {
+      const { data: log } = await supabase
+        .from('analysis_log')
+        .insert({
+          user_id: user.id,
+          repo_full_name: repoFullName,
+          repo_name: repoName,
+          status: 'in_progress',
+        })
+        .select('id')
+        .single();
+      logId = log?.id ?? null;
+    } catch {
+      // Continue even if logging fails
+    }
+
     const allFiles = await fetchDirRecursive(repoFullName, token);
 
-    // Prioritize the most important file types, skip lock files and generated files
     const priorityFiles = allFiles
       .filter((f: any) => {
         const name = f.name.toLowerCase();
@@ -91,7 +180,6 @@ export async function POST(request: NextRequest) {
         );
       })
       .sort((a: any, b: any) => {
-        // Prioritize security-sensitive files first
         const priority = ['middleware', 'auth', 'api', 'route', 'supabase', 'config', 'env'];
         const aScore = priority.findIndex(p => a.path.toLowerCase().includes(p));
         const bScore = priority.findIndex(p => b.path.toLowerCase().includes(p));
@@ -111,14 +199,16 @@ export async function POST(request: NextRequest) {
       } catch (_) {}
     }
 
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4o",
-      temperature: 0.1,
-      max_tokens: 4000,
-      messages: [
-        {
-          role: "system",
-          content: `You are a principal engineer at a FAANG company doing a paid code security and architecture audit. Your reviews are legendary for being brutally specific, technically deep, and immediately actionable.
+    let analysis = "No analysis generated.";
+    try {
+      const completion = await openai.chat.completions.create({
+        model: "gpt-4o",
+        temperature: 0.1,
+        max_tokens: 4000,
+        messages: [
+          {
+            role: "system",
+            content: `You are a principal engineer at a FAANG company doing a paid code security and architecture audit. Your reviews are legendary for being brutally specific, technically deep, and immediately actionable.
 
 You do not give generic advice. Every single point you make references exact line patterns, exact variable names, and exact file paths from the code provided to you.
 
@@ -127,10 +217,10 @@ You never say things like "add comments", "use useCallback", or "add error handl
 If a section has no real issues, skip it or say the code is clean there. No padding, no obvious advice, no fluff. A senior engineer reading this should learn something they didn't already know.
 
 When you find issues, you explain the full exploit chain — not just "this is a risk" but exactly how it would be exploited and what the blast radius is.`
-        },
-        {
-          role: "user",
-          content: `Do a paid-tier principal engineer audit of this repository. Every observation must reference the exact file and exact code pattern you saw. Do not give advice that isn't directly tied to something you read in the code below.
+          },
+          {
+            role: "user",
+            content: `Do a paid-tier principal engineer audit of this repository. Every observation must reference the exact file and exact code pattern you saw. Do not give advice that isn't directly tied to something you read in the code below.
 
 Repository: ${repoFullName}
 Files reviewed: ${priorityFiles.map((f: any) => f.path).join(', ')}
@@ -182,34 +272,35 @@ Fix: [one sentence with the exact implementation change]
 **Tech Debt Estimate**
 Hours: [realistic number between 8 and 120]
 Reason: [one sentence naming the specific files and changes driving that estimate]`
-        }
-      ],
-    });
+          }
+        ],
+      });
+      analysis = completion.choices[0]?.message?.content || "No analysis generated.";
+    } catch (openaiError: any) {
+      // Mark log as failed
+      if (logId) {
+        await supabase.from('analysis_log').update({ status: 'failed' }).eq('id', logId);
+      }
+      return NextResponse.json({ error: "AI analysis failed: " + openaiError.message }, { status: 500 });
+    }
 
-    const analysis = completion.choices[0]?.message?.content || "No analysis generated.";
-
-    // Quality score
+    // Parse structured data
     const qualityMatch = analysis.match(/Code Quality[^\d]*(\d+)\s*\/\s*10/i);
     const qualityScore = qualityMatch ? Math.round(parseInt(qualityMatch[1]) * 10) : 75;
 
-    // Blast radius
     const criticalCount = (analysis.match(/\*\*Risk level: Critical\*\*/gi) || []).length;
     const highCount = (analysis.match(/\*\*Risk level: High\*\*/gi) || []).length;
     const blastRadius = Math.min(99, (criticalCount * 15) + (highCount * 8) + 20);
 
-    // Security score
     const securityIssues = (analysis.match(/security|auth|token|exposure/gi) || []).length;
     const security = Math.max(10, 100 - (securityIssues * 3));
 
-    // Performance score
     const perfIssues = (analysis.match(/performance|slow|latency|optimize/gi) || []).length;
     const performance = Math.max(10, 100 - (perfIssues * 4));
 
-    // Tech debt hours
     const techDebtMatch = analysis.match(/Hours:\s*(\d+)/i);
     const techDebt = techDebtMatch ? parseInt(techDebtMatch[1]) : 20;
 
-    // Top priority fix
     const topFixFileMatch = analysis.match(/Top Priority Fix[\s\S]*?File:\s*([^\n]+)/i);
     const topFixIssueMatch = analysis.match(/Top Priority Fix[\s\S]*?Issue:\s*([^\n]+)/i);
     const topFixRecommendationMatch = analysis.match(/Top Priority Fix[\s\S]*?Fix:\s*([^\n]+)/i);
@@ -220,7 +311,6 @@ Reason: [one sentence naming the specific files and changes driving that estimat
       fix: topFixRecommendationMatch?.[1]?.trim() || 'See recommendations in the Analysis tab',
     };
 
-    // Files scanned with status — smarter matching
     const scannedFiles = priorityFiles.map((f: any) => {
       const name = f.path;
       const lowerAnalysis = analysis.toLowerCase();
@@ -237,7 +327,7 @@ Reason: [one sentence naming the specific files and changes driving that estimat
       };
     }).slice(0, 6);
 
-    return NextResponse.json({
+    const result = {
       success: true,
       repo: repoName,
       analysis,
@@ -250,7 +340,25 @@ Reason: [one sentence naming the specific files and changes driving that estimat
         topPriorityFix,
         scannedFiles,
       }
-    });
+    };
+
+    // ✅ Fix 6: Save result to DB and mark as complete
+    if (logId) {
+      try {
+        await supabase
+          .from('analysis_log')
+          .update({
+            status: 'complete',
+            result,
+            completed_at: new Date().toISOString(),
+          })
+          .eq('id', logId);
+      } catch {
+        // Non-fatal if logging fails
+      }
+    }
+
+    return NextResponse.json(result);
 
   } catch (error: any) {
     console.error("Analyze Error:", error);
