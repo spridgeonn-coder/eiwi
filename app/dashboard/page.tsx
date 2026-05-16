@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
-import { Search, User, Clipboard, X, AlertCircle, CheckCircle, ChevronDown, Menu } from "lucide-react";
+import { Search, User, Clipboard, X, AlertCircle, CheckCircle, ChevronDown, Menu, RefreshCw, Clock } from "lucide-react";
 import AnalysisRenderer from '@/components/AnalysisRenderer';
 
 function CircularGauge({ value }: { value: number }) {
@@ -134,22 +134,15 @@ function getSeverityColor(severity: string) {
   return { text: '#4ade80', bg: 'rgba(74,222,128,0.1)', border: 'rgba(74,222,128,0.2)' };
 }
 
-// Parses Claude's ### N. heading format into issue cards
 function parseIssuesFromAnalysis(analysis: string) {
   const issues: { severity: string; file: string; title: string; desc: string; fix: string }[] = [];
-
-  // Split on ### followed by a number — each block is one issue
   const blocks = analysis.split(/(?=###\s+\d+\.)/).filter(b => b.trim());
 
   for (const block of blocks) {
     const lines = block.split('\n').map(l => l.trim()).filter(Boolean);
     if (lines.length === 0) continue;
-
-    // First line is the ### heading — strip the number prefix to get the title
     const titleLine = lines[0].replace(/^###\s+\d+\.\s*/, '').trim();
     if (!titleLine) continue;
-
-    // Helper: find a bold-labelled field anywhere in the block
     const get = (label: string): string => {
       const re = new RegExp(`\\*\\*${label}[:\\s]*\\*\\*\\s*(.+)`, 'i');
       for (const line of lines) {
@@ -158,10 +151,8 @@ function parseIssuesFromAnalysis(analysis: string) {
       }
       return '';
     };
-
     const riskRaw = get('Risk level');
     const severity = riskRaw || 'High';
-
     issues.push({
       severity,
       file: get('File \\+ pattern') || get('File'),
@@ -170,29 +161,31 @@ function parseIssuesFromAnalysis(analysis: string) {
       fix: get('Fix'),
     });
   }
-
   return issues;
 }
 
-// Extracts the Executive Summary paragraph from Claude's ## heading format
 function extractSummary(analysis: string): string {
-  // Grab everything between "## Executive Summary" and the next ## section or ---
   const match = analysis.match(/##\s+Executive Summary\s*\n([\s\S]*?)(?=\n##\s|\n---)/i);
   if (match) {
-    return match[1]
-      .split('\n')
-      .map(l => l.trim())
-      .filter(Boolean)
-      .join(' ');
+    return match[1].split('\n').map(l => l.trim()).filter(Boolean).join(' ');
   }
-
-  // Fallback: first non-heading, non-empty line with meaningful length
   const fallback = analysis
     .split('\n')
     .map(l => l.trim())
     .find(l => l.length > 60 && !l.startsWith('#') && !l.startsWith('-') && !l.startsWith('*'));
-
   return fallback || 'Analysis complete.';
+}
+
+// Returns a human-readable relative time string e.g. "2 hours ago", "just now"
+function formatTimeAgo(date: Date): string {
+  const seconds = Math.floor((Date.now() - date.getTime()) / 1000);
+  if (seconds < 60) return 'just now';
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes} minute${minutes === 1 ? '' : 's'} ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} hour${hours === 1 ? '' : 's'} ago`;
+  const days = Math.floor(hours / 24);
+  return `${days} day${days === 1 ? '' : 's'} ago`;
 }
 
 const DEFAULT_STATS = {
@@ -221,8 +214,18 @@ export default function Dashboard() {
   const [hasEverAnalyzed, setHasEverAnalyzed] = useState(false);
   const [issueFilter, setIssueFilter] = useState<'all' | 'critical' | 'high' | 'medium'>('all');
   const [mobileRepoOpen, setMobileRepoOpen] = useState(false);
+  const [lastAnalyzedAt, setLastAnalyzedAt] = useState<Date | null>(null);
+  const [timeAgo, setTimeAgo] = useState<string>('');
 
   const showToast = (message: string, type: 'error' | 'success' = 'error') => setToast({ message, type });
+
+  // Keep the "X minutes ago" label ticking in real time
+  useEffect(() => {
+    if (!lastAnalyzedAt) return;
+    setTimeAgo(formatTimeAgo(lastAnalyzedAt));
+    const interval = setInterval(() => setTimeAgo(formatTimeAgo(lastAnalyzedAt)), 30000);
+    return () => clearInterval(interval);
+  }, [lastAnalyzedAt]);
 
   useEffect(() => {
     document.title = 'Dashboard | eiwi';
@@ -254,6 +257,7 @@ export default function Dashboard() {
           setResults(lastLog.result);
           setHasEverAnalyzed(true);
           setSelectedRepo({ name: lastLog.repo_name, full_name: lastLog.repo_full_name });
+          if (lastLog.created_at) setLastAnalyzedAt(new Date(lastLog.created_at));
           const s = lastLog.result.structured;
           if (s) {
             setStats({
@@ -300,7 +304,7 @@ export default function Dashboard() {
     setLoadingRepos(false);
   };
 
-  const analyzeRepo = async (repo: any) => {
+  const analyzeRepo = async (repo: any, force = false) => {
     if (analyzingRepo) { showToast('Please wait for the current analysis to finish.'); return; }
     setAnalyzingRepo(repo.full_name);
     setResults(null);
@@ -311,7 +315,7 @@ export default function Dashboard() {
       const res = await fetch('/api/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ repoFullName: repo.full_name, repoName: repo.name })
+        body: JSON.stringify({ repoFullName: repo.full_name, repoName: repo.name, force })
       });
 
       const data = await res.json();
@@ -322,6 +326,7 @@ export default function Dashboard() {
 
       setResults(data);
       setHasEverAnalyzed(true);
+      setLastAnalyzedAt(new Date());
 
       if (data.structured) {
         setStats({
@@ -543,7 +548,6 @@ export default function Dashboard() {
                 </p>
               </div>
 
-              {/* Mobile repo selector */}
               <RepoSelector />
 
               {isLoading ? (
@@ -650,12 +654,39 @@ export default function Dashboard() {
             <div>
               <div className="mb-6">
                 <h1 className="text-3xl md:text-4xl font-bold tracking-tight">{selectedRepo ? selectedRepo.name : 'Analysis'}</h1>
-                <p className="text-zinc-500 mt-1 text-sm">
-                  {results ? 'AI analysis complete' : isAnalyzing ? 'Running analysis...' : 'Select a repository to analyze'}
-                </p>
+
+                {/* Timestamp + Re-analyze row — only shown when results exist and not currently analyzing */}
+                {results && !isAnalyzing && (
+                  <div className="flex items-center gap-3 mt-2 flex-wrap">
+                    <div className="flex items-center gap-1.5 text-zinc-500 text-xs">
+                      <Clock className="w-3.5 h-3.5" />
+                      <span>Last analyzed {timeAgo}</span>
+                    </div>
+                    <div className="w-px h-3.5 bg-zinc-700" />
+                    <button
+                      onClick={() => selectedRepo && analyzeRepo(selectedRepo, true)}
+                      className="flex items-center gap-1.5 text-xs font-medium text-violet-400 px-2.5 py-1 rounded-lg transition-colors hover:bg-violet-500/10"
+                      style={{ border: '1px solid rgba(167,139,250,0.25)' }}>
+                      <RefreshCw className="w-3 h-3" />
+                      Re-analyze
+                    </button>
+                    <div className="w-px h-3.5 bg-zinc-700" />
+                    <span className="text-xs font-medium px-2.5 py-1 rounded-lg"
+                      style={{ color: '#4ade80', background: 'rgba(74,222,128,0.1)', border: '1px solid rgba(74,222,128,0.2)' }}>
+                      AI analysis complete
+                    </span>
+                  </div>
+                )}
+
+                {!results && !isAnalyzing && (
+                  <p className="text-zinc-500 mt-1 text-sm">Select a repository to analyze</p>
+                )}
+
+                {isAnalyzing && (
+                  <p className="text-zinc-500 mt-1 text-sm">Running analysis...</p>
+                )}
               </div>
 
-              {/* Mobile repo selector on analysis tab */}
               <RepoSelector />
 
               <div className="rounded-3xl overflow-hidden" style={{ background: '#111119', border: '1px solid rgba(255,255,255,0.06)', minHeight: '500px' }}>
@@ -687,7 +718,6 @@ export default function Dashboard() {
                 </p>
               </div>
 
-              {/* Mobile repo selector on issues tab */}
               <RepoSelector />
 
               {results && parsedIssues.length > 0 && (

@@ -8,8 +8,6 @@ const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 });
 
-// FIX 2: Validate repoFullName is strictly "owner/repo" before using it anywhere.
-// Prevents path traversal (../../etc) and prompt injection via malicious repo names.
 function isValidRepoFullName(value: unknown): value is string {
   if (typeof value !== 'string') return false;
   return /^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/.test(value);
@@ -68,9 +66,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Auth service unavailable" }, { status: 503 });
     }
 
-    // FIX 1: Read token from session only — no profile table fallback.
-    // The fallback was removed because we no longer persist tokens to the DB.
-    // If the session token is missing the user needs to re-authenticate.
     let token: string | null = null;
     try {
       const { data: { session } } = await supabase.auth.getSession();
@@ -83,9 +78,8 @@ export async function POST(request: NextRequest) {
       }, { status: 401 });
     }
 
-    // FIX 2: Validate inputs before doing anything with them
     const body = await request.json();
-    const { repoFullName, repoName } = body;
+    const { repoFullName, repoName, force } = body;
 
     if (!isValidRepoFullName(repoFullName)) {
       return NextResponse.json({
@@ -116,39 +110,27 @@ export async function POST(request: NextRequest) {
       }
     } catch {}
 
-    // Check cache — return if analyzed within last hour
-    try {
-      const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
-      const { data: cached } = await supabase
-        .from('analysis_log')
-        .select('result')
-        .eq('user_id', user.id)
-        .eq('repo_full_name', repoFullName)
-        .eq('status', 'complete')
-        .gte('created_at', oneHourAgo)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .single();
+    // Check cache — skipped when force = true (Re-analyze button)
+    if (!force) {
+      try {
+        const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+        const { data: cached } = await supabase
+          .from('analysis_log')
+          .select('result')
+          .eq('user_id', user.id)
+          .eq('repo_full_name', repoFullName)
+          .eq('status', 'complete')
+          .gte('created_at', oneHourAgo)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .single();
 
-      if (cached?.result) {
-        return NextResponse.json({ ...cached.result, cached: true });
-      }
-    } catch {}
+        if (cached?.result) {
+          return NextResponse.json({ ...cached.result, cached: true });
+        }
+      } catch {}
+    }
 
-    // FIX 3: Atomic race condition guard.
-    // The old approach was: read to check for in_progress, then separately insert.
-    // Two concurrent requests both read "nothing in progress" simultaneously, both
-    // pass the check, both insert — race condition bypasses the guard entirely.
-    //
-    // The fix: skip the read. Just try to INSERT directly. If a unique constraint
-    // on (user_id, repo_full_name) WHERE status = 'in_progress' already exists,
-    // Postgres rejects the second insert with error code 23505 and we return 409.
-    // This is atomic — no gap between check and insert.
-    //
-    // Run this once in Supabase SQL editor to enable this:
-    //   CREATE UNIQUE INDEX analysis_in_progress_once
-    //   ON analysis_log (user_id, repo_full_name)
-    //   WHERE status = 'in_progress';
     let logId: string | null = null;
     try {
       const { data: log, error: insertError } = await supabase
@@ -163,7 +145,6 @@ export async function POST(request: NextRequest) {
         .single();
 
       if (insertError) {
-        // 23505 = unique constraint violation — another request already in progress
         if (insertError.code === '23505') {
           return NextResponse.json({ error: "Analysis already in progress for this repo." }, { status: 409 });
         }
@@ -322,7 +303,6 @@ Reason: [one sentence naming the specific files and changes driving that estimat
       return NextResponse.json({ error: "AI analysis failed: " + claudeError.message }, { status: 500 });
     }
 
-    // Parse structured data
     const qualityMatch = analysis.match(/Code Quality[^\d]*(\d+)\s*\/\s*10/i);
     const qualityScore = qualityMatch ? Math.round(parseInt(qualityMatch[1]) * 10) : 75;
 
