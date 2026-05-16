@@ -4,6 +4,8 @@ import { useEffect, useState, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
 import { Search, User, Clipboard, X, AlertCircle, CheckCircle, ChevronDown, Menu, RefreshCw, Clock } from "lucide-react";
 import AnalysisRenderer from '@/components/AnalysisRenderer';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 function CircularGauge({ value }: { value: number }) {
   const radius = 54;
@@ -780,7 +782,14 @@ export default function Dashboard() {
                           {issue.fix && (
                             <div className="mt-3 p-3 rounded-xl" style={{ background: 'rgba(139,92,246,0.08)', borderLeft: '2px solid #8b5cf6' }}>
                               <p className="text-xs text-violet-400 font-semibold uppercase tracking-wider mb-1.5">Fix</p>
-                              <p className="text-xs font-mono text-purple-200 leading-relaxed break-words">{issue.fix.replace(/```[\s\S]*?```/g, '').trim()}</p>
+                              <ReactMarkdown
+                                remarkPlugins={[remarkGfm]}
+                                components={{
+                                  p: ({ children }) => <p style={{ fontSize: '11px', fontFamily: 'monospace', color: '#ddd6fe', lineHeight: 1.7, margin: '0 0 6px' }}>{children}</p>,
+                                  code: ({ children }) => <code style={{ fontSize: '11px', fontFamily: 'monospace', color: '#ddd6fe', background: 'rgba(255,255,255,0.06)', padding: '1px 4px', borderRadius: '3px' }}>{children}</code>,
+                                  pre: ({ children }) => <pre style={{ margin: '6px 0 0', overflowX: 'auto', fontSize: '11px', color: '#ddd6fe', background: 'rgba(0,0,0,0.2)', padding: '8px', borderRadius: '6px' }}>{children}</pre>,
+                                }}
+                              >{issue.fix}</ReactMarkdown>
                             </div>
                           )}
                         </div>

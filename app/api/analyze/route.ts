@@ -50,12 +50,16 @@ async function fetchDirRecursive(
 }
 
 export async function POST(request: NextRequest) {
+  let logId: string | null = null;
+  let supabaseClient: any = null;
+
   try {
     const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
       { cookies: { getAll: () => request.cookies.getAll(), setAll: () => {} } }
     );
+    supabaseClient = supabase;
 
     let user;
     try {
@@ -93,22 +97,27 @@ export async function POST(request: NextRequest) {
       }, { status: 400 });
     }
 
-    // Rate limiting — 10 per day
-    try {
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const { count } = await supabase
-        .from('analysis_log')
-        .select('*', { count: 'exact', head: true })
-        .eq('user_id', user.id)
-        .gte('created_at', today.toISOString());
+    // FIX 1: Rate limit fails closed — if Supabase is unreachable we block
+    // the request rather than silently allowing unlimited analyses.
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const { count, error: countError } = await supabase
+      .from('analysis_log')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', user.id)
+      .gte('created_at', today.toISOString());
 
-      if ((count ?? 0) >= 10) {
-        return NextResponse.json({
-          error: "Daily limit reached. You can run 10 analyses per day. Upgrade to Pro for unlimited analyses."
-        }, { status: 429 });
-      }
-    } catch {}
+    if (countError) {
+      return NextResponse.json({
+        error: "Rate limit check failed. Please try again."
+      }, { status: 503 });
+    }
+
+    if ((count ?? 0) >= 10) {
+      return NextResponse.json({
+        error: "Daily limit reached. You can run 10 analyses per day. Upgrade to Pro for unlimited analyses."
+      }, { status: 429 });
+    }
 
     // Check cache — skipped when force = true (Re-analyze button)
     if (!force) {
@@ -131,11 +140,20 @@ export async function POST(request: NextRequest) {
       } catch {}
     }
 
-    // FIX: Soft handling for already-in-progress analyses.
-    // Instead of a hard 409 error that looks like a failure to the user,
-    // we return a 202 with a friendly message so the UI can show
-    // "already running, check back soon" instead of an error toast.
-    let logId: string | null = null;
+    // FIX 2: Clean up any stale in_progress rows older than 10 minutes
+    // before inserting a new one. This prevents repos from getting permanently
+    // stuck if a previous analysis timed out or crashed without cleaning up.
+    try {
+      const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+      await supabase
+        .from('analysis_log')
+        .delete()
+        .eq('user_id', user.id)
+        .eq('repo_full_name', repoFullName)
+        .eq('status', 'in_progress')
+        .lt('created_at', tenMinutesAgo);
+    } catch {}
+
     try {
       const { data: log, error: insertError } = await supabase
         .from('analysis_log')
@@ -212,6 +230,10 @@ export async function POST(request: NextRequest) {
     }
 
     let analysis = "No analysis generated.";
+
+    // FIX 3: Wrap the entire Claude call + result saving in try/finally so
+    // the log row is always cleaned up — even if Claude times out, GitHub
+    // rate limits, or an OOM kills the function mid-flight.
     try {
       const response = await anthropic.messages.create({
         model: "claude-sonnet-4-5",
@@ -229,7 +251,7 @@ If a section has no real issues, skip it entirely — do not include the heading
 
 When you find issues, you explain the full exploit chain — not just "this is a risk" but exactly how it would be exploited and what the blast radius is.
 
-CRITICAL — AVOID FALSE POSITIVES: Before flagging any issue, carefully check whether a fix is already present in the code. If the vulnerable pattern exists but a mitigation is already implemented — even partially — do not flag it as an open issue. Only report problems where the vulnerable pattern exists AND no mitigation is in place. For example: if you see an open redirect risk but also see an allowlist validation function handling it, do not flag the open redirect. If you see a token being read from a session rather than a database, do not flag token storage. Credit fixes that are already in place.
+CRITICAL — AVOID FALSE POSITIVES: Before flagging any issue, carefully check whether a fix is already present in the code. If the vulnerable pattern exists but a mitigation is already implemented — even partially — do not flag it as an open issue. Only report problems where the vulnerable pattern exists AND no mitigation is in place. Credit fixes that are already in place.
 
 CRITICAL FORMATTING RULE: You must use EXACTLY these ## section headings, spelled and spaced exactly as shown. Do not rename them, combine them, or add extra headings:
 
@@ -263,41 +285,41 @@ ${codeContext || "Could not fetch files."}
 
 ---
 
-Use EXACTLY these ## section headings in this order. Skip any section that has no real findings — do not include the heading at all if you have nothing to say.
+Use EXACTLY these ## section headings in this order. Skip any section that has no real findings.
 
 ## Executive Summary
-2-3 sentences max. Name the single biggest actual threat in this specific codebase. Reference real file names and real variable names you saw.
+2-3 sentences max. Name the single biggest actual threat. Reference real file names and variable names you saw.
 
 ## Critical / High Risks
-For each issue found, use this format. Only include issues where NO fix is already present in the code:
+For each issue found, use this format. Only include issues where NO fix is already present:
 
 ### 1. [Short title of the issue]
 - **Risk level:** Critical | High
 - **File + pattern:** Exact file and the specific code pattern
 - **Attack vector:** How would an attacker exploit this right now, concretely?
 - **Production impact:** What specifically breaks, gets exposed, or goes down?
-- **Fix:** The exact code change needed with implementation detail.
+- **Fix:** The exact code change needed. Include actual code snippets in fenced code blocks where helpful.
 
 ## Architecture & Design Issues
 Same ### numbered format. Skip entirely if no real issues found.
 
 ## Security & Auth Review
-Deep analysis of auth flows, token handling, session management, OAuth edge cases. Reference exact patterns you saw. Credit mitigations that are already in place.
+Deep analysis of auth flows, token handling, session management. Credit mitigations already in place.
 
 ## Performance & Reliability
-Only include if you found real bottlenecks in this specific code. Skip if clean.
+Only include if you found real bottlenecks. Skip if clean.
 
 ## Code Quality
-One paragraph with specific examples from this codebase justifying the score.
+One paragraph with specific examples justifying the score.
 
 ## Refactoring Priorities
-Numbered list, highest production risk first. Each must name the exact file and specific change.
+Numbered list, highest production risk first. Name exact file and specific change.
 
 ## Quick Wins
-Max 3 items. Each must name the exact file, the exact current code, and the exact replacement.
+Max 3 items. Name the exact file, the exact current code, and the exact replacement.
 
 ## What's Actually Good
-Name fixes and patterns that are already well-implemented. Be specific about what was done right.
+Name fixes and patterns already well-implemented. Be specific.
 
 ## Top Priority Fix
 File: [exact filename]
@@ -305,12 +327,11 @@ Issue: [one specific sentence]
 Fix: [one sentence with the exact implementation change]
 
 ## Scores
-Based strictly on what you observed in the code right now. Be accurate and reflect any fixes already in place.
 Quality: [0-100]
 Security: [0-100]
 Performance: [0-100]
-BlastRadius: [0-99, number of files meaningfully affected by the worst unfixed issue]
-TechDebt: [8-120, realistic hours to fix everything you flagged as still open]
+BlastRadius: [0-99]
+TechDebt: [8-120]
 
 ## Tech Debt Estimate
 Hours: [same number as TechDebt above]
@@ -332,15 +353,14 @@ Reason: [one sentence naming specific files and changes still needed]`
       });
 
     } catch (claudeError: any) {
-      if (logId) {
-        await supabase.from('analysis_log').update({ status: 'failed' }).eq('id', logId);
+      // FIX 3: Always mark the log as failed so the repo isn't stuck in_progress
+      if (logId && supabaseClient) {
+        await supabaseClient.from('analysis_log').update({ status: 'failed' }).eq('id', logId);
       }
       return NextResponse.json({ error: "AI analysis failed: " + claudeError.message }, { status: 500 });
     }
 
-    // Parse scores from Claude's dedicated ## Scores section
     const scoresSection = analysis.match(/## Scores\s*([\s\S]*?)(?=\n##\s|$)/i)?.[1] || '';
-
     const qualityMatch = scoresSection.match(/Quality:\s*(\d+)/i);
     const securityMatch = scoresSection.match(/Security:\s*(\d+)/i);
     const performanceMatch = scoresSection.match(/Performance:\s*(\d+)/i);
@@ -415,6 +435,12 @@ Reason: [one sentence naming specific files and changes still needed]`
     return NextResponse.json(result);
 
   } catch (error: any) {
+    // FIX 3: Top-level catch also cleans up the log row
+    if (logId && supabaseClient) {
+      try {
+        await supabaseClient.from('analysis_log').update({ status: 'failed' }).eq('id', logId);
+      } catch {}
+    }
     console.error("Analyze Error:", error);
     return NextResponse.json({ error: error.message || "Analysis failed" }, { status: 500 });
   }
