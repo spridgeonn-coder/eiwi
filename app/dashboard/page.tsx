@@ -101,18 +101,23 @@ function AnalysisProgress({ repoName }: { repoName: string }) {
   );
 }
 
-function Toast({ message, type, onClose }: { message: string; type: 'error' | 'success'; onClose: () => void }) {
+function Toast({ message, type, onClose }: { message: string; type: 'error' | 'success' | 'info'; onClose: () => void }) {
   useEffect(() => {
     const t = setTimeout(onClose, 5000);
     return () => clearTimeout(t);
   }, [onClose]);
   return (
     <div className="fixed bottom-6 left-4 right-4 md:left-auto md:right-6 md:max-w-sm z-50 flex items-start gap-3 px-4 py-3 rounded-2xl shadow-lg"
-      style={{ background: type === 'error' ? '#1a0f0f' : '#0f1a0f', border: `1px solid ${type === 'error' ? 'rgba(248,113,113,0.3)' : 'rgba(74,222,128,0.3)'}` }}>
+      style={{
+        background: type === 'error' ? '#1a0f0f' : type === 'info' ? '#0f0f1a' : '#0f1a0f',
+        border: `1px solid ${type === 'error' ? 'rgba(248,113,113,0.3)' : type === 'info' ? 'rgba(167,139,250,0.3)' : 'rgba(74,222,128,0.3)'}`
+      }}>
       {type === 'error'
         ? <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" />
+        : type === 'info'
+        ? <AlertCircle className="w-4 h-4 text-violet-400 flex-shrink-0 mt-0.5" />
         : <CheckCircle className="w-4 h-4 text-green-400 flex-shrink-0 mt-0.5" />}
-      <p className="text-sm leading-relaxed" style={{ color: type === 'error' ? '#fca5a5' : '#86efac' }}>{message}</p>
+      <p className="text-sm leading-relaxed" style={{ color: type === 'error' ? '#fca5a5' : type === 'info' ? '#c4b5fd' : '#86efac' }}>{message}</p>
       <button onClick={onClose} className="ml-2 flex-shrink-0">
         <X className="w-3.5 h-3.5 text-zinc-600 hover:text-zinc-400" />
       </button>
@@ -176,7 +181,6 @@ function extractSummary(analysis: string): string {
   return fallback || 'Analysis complete.';
 }
 
-// Returns a human-readable relative time string e.g. "2 hours ago", "just now"
 function formatTimeAgo(date: Date): string {
   const seconds = Math.floor((Date.now() - date.getTime()) / 1000);
   if (seconds < 60) return 'just now';
@@ -209,7 +213,7 @@ export default function Dashboard() {
   const [results, setResults] = useState<any>(null);
   const [selectedRepo, setSelectedRepo] = useState<any>(null);
   const [activeTab, setActiveTab] = useState<'overview' | 'analysis' | 'issues'>('overview');
-  const [toast, setToast] = useState<{ message: string; type: 'error' | 'success' } | null>(null);
+  const [toast, setToast] = useState<{ message: string; type: 'error' | 'success' | 'info' } | null>(null);
   const [stats, setStats] = useState(DEFAULT_STATS);
   const [hasEverAnalyzed, setHasEverAnalyzed] = useState(false);
   const [issueFilter, setIssueFilter] = useState<'all' | 'critical' | 'high' | 'medium'>('all');
@@ -217,9 +221,8 @@ export default function Dashboard() {
   const [lastAnalyzedAt, setLastAnalyzedAt] = useState<Date | null>(null);
   const [timeAgo, setTimeAgo] = useState<string>('');
 
-  const showToast = (message: string, type: 'error' | 'success' = 'error') => setToast({ message, type });
+  const showToast = (message: string, type: 'error' | 'success' | 'info' = 'error') => setToast({ message, type });
 
-  // Keep the "X minutes ago" label ticking in real time
   useEffect(() => {
     if (!lastAnalyzedAt) return;
     setTimeAgo(formatTimeAgo(lastAnalyzedAt));
@@ -321,7 +324,8 @@ export default function Dashboard() {
       const data = await res.json();
 
       if (res.status === 429) { showToast(data.error || 'Daily limit reached.'); setAnalyzingRepo(null); return; }
-      if (res.status === 409) { showToast('This repo is already being analyzed.'); setAnalyzingRepo(null); return; }
+      // FIX: 202 means already in progress — show a friendly info message instead of an error
+      if (res.status === 202) { showToast(data.error || 'Analysis already in progress. Check back in 30 seconds.', 'info'); setAnalyzingRepo(null); return; }
       if (!res.ok || data.error) throw new Error(data.error || 'Analysis failed');
 
       setResults(data);
@@ -456,7 +460,6 @@ export default function Dashboard() {
 
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
 
-      {/* Nav */}
       <nav className="border-b border-white/[0.07] bg-black/70 backdrop-blur-xl sticky top-0 z-50">
         <div className="max-w-screen-2xl mx-auto px-4 md:px-8 py-4 flex items-center gap-4 md:gap-10">
           <div className="flex items-center gap-2.5 mr-2 md:mr-4">
@@ -496,7 +499,6 @@ export default function Dashboard() {
 
       <div className="max-w-screen-2xl mx-auto px-4 md:px-8 py-6 md:py-8 flex gap-6">
 
-        {/* Desktop Sidebar */}
         <div className="hidden md:block w-72 flex-shrink-0">
           <h2 className="text-xs font-medium text-zinc-500 mb-4 tracking-widest uppercase">Repository</h2>
           <div className="space-y-2">
@@ -536,7 +538,6 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Main Content */}
         <div className="flex-1 min-w-0">
 
           {activeTab === 'overview' && (
@@ -655,7 +656,6 @@ export default function Dashboard() {
               <div className="mb-6">
                 <h1 className="text-3xl md:text-4xl font-bold tracking-tight">{selectedRepo ? selectedRepo.name : 'Analysis'}</h1>
 
-                {/* Timestamp + Re-analyze row — only shown when results exist and not currently analyzing */}
                 {results && !isAnalyzing && (
                   <div className="flex items-center gap-3 mt-2 flex-wrap">
                     <div className="flex items-center gap-1.5 text-zinc-500 text-xs">

@@ -32,7 +32,6 @@ function parseSeverityBadge(text: string): { label: string; color: string; bg: s
 function parseRisks(text: string) {
   const issues: { file: string; title: string; desc: string; fix: string; severity: string }[] = [];
 
-  // Split on numbered list items like "### 1." or "- **Risk level"
   const blocks = text.split(/(?=###\s+\d+\.|(?=- \*\*Risk level))/i).filter(b => b.trim());
 
   for (const block of blocks) {
@@ -197,7 +196,6 @@ function SimpleMarkdown({ text }: { text: string }) {
 export default function AnalysisRenderer({ content }: { content: string }) {
   if (!content) return null;
 
-  // Try Claude's ## heading format first, then OpenAI's **bold** format
   const execSummary   = parseSection(content, 'Executive Summary');
   const criticalRisks = parseSection(content, 'Critical / High Risks');
   const architecture  = parseSection(content, 'Architecture & Design Issues') || parseSection(content, 'Architecture');
@@ -212,7 +210,6 @@ export default function AnalysisRenderer({ content }: { content: string }) {
   const quickItems = parseKeyValueSection(quickWins);
   const goodItems  = parseKeyValueSection(whatsGood);
 
-  // If we can't parse sections, render the whole thing as markdown
   const hasSections = execSummary || criticalRisks || architecture || security || performance || codeQuality;
 
   if (!hasSections) {
@@ -227,9 +224,8 @@ export default function AnalysisRenderer({ content }: { content: string }) {
     <div style={{ fontFamily: 'sans-serif' }}>
       {execSummary && (
         <CollapsibleSection dot="#f87171" title="Executive Summary">
-          <div style={{ padding: '18px 20px' }}>
-            <p style={{ fontSize: '13px', color: '#c4c4d4', lineHeight: 1.75, margin: 0 }}>{execSummary}</p>
-          </div>
+          {/* FIX: was a plain <p> tag — bold and code in the summary now render correctly */}
+          <SimpleMarkdown text={execSummary} />
         </CollapsibleSection>
       )}
 

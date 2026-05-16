@@ -29,19 +29,20 @@ export async function middleware(request: NextRequest) {
     request.nextUrl.pathname.startsWith('/dashboard') ||
     request.nextUrl.pathname.startsWith('/profile')
 
-  // FIX: getUser() makes a network call to Supabase on every request.
-  // With no timeout, a Supabase outage hangs middleware for 30s then returns
-  // a 504 — taking down every protected route site-wide.
-  // We race it against 3 seconds and redirect gracefully if auth is unavailable.
+  // FIX: Use getSession() instead of getUser() in middleware.
+  // getUser() makes a network call to Supabase auth on every request.
+  // getSession() reads the session from the cookie locally — no network call,
+  // no latency, no risk of hanging if Supabase is slow.
+  // We still keep the timeout as a safety net for the cookie parsing itself.
   let user = null;
   try {
     const { data, error } = await Promise.race([
-      supabase.auth.getUser(),
+      supabase.auth.getSession(),
       new Promise<never>((_, reject) =>
         setTimeout(() => reject(new Error('Auth timeout')), 3000)
       ),
     ]);
-    if (!error) user = data.user;
+    if (!error) user = data.session?.user ?? null;
   } catch (err) {
     console.error('Auth check failed:', err);
     if (isProtectedPath) {

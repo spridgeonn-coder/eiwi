@@ -131,6 +131,10 @@ export async function POST(request: NextRequest) {
       } catch {}
     }
 
+    // FIX: Soft handling for already-in-progress analyses.
+    // Instead of a hard 409 error that looks like a failure to the user,
+    // we return a 202 with a friendly message so the UI can show
+    // "already running, check back soon" instead of an error toast.
     let logId: string | null = null;
     try {
       const { data: log, error: insertError } = await supabase
@@ -146,7 +150,9 @@ export async function POST(request: NextRequest) {
 
       if (insertError) {
         if (insertError.code === '23505') {
-          return NextResponse.json({ error: "Analysis already in progress for this repo." }, { status: 409 });
+          return NextResponse.json({
+            error: "Analysis already in progress. Check back in 30 seconds."
+          }, { status: 202 });
         }
         console.error('Failed to insert log:', insertError.message);
       }
@@ -209,7 +215,6 @@ export async function POST(request: NextRequest) {
     try {
       const response = await anthropic.messages.create({
         model: "claude-sonnet-4-5",
-        // Raised from 3000 — previous limit was cutting off sections mid-report
         max_tokens: 6000,
         system: [
           {
@@ -223,6 +228,8 @@ You never say things like "add comments", "use useCallback", or "add error handl
 If a section has no real issues, skip it entirely — do not include the heading. No padding, no obvious advice, no fluff. A senior engineer reading this should learn something they didn't already know.
 
 When you find issues, you explain the full exploit chain — not just "this is a risk" but exactly how it would be exploited and what the blast radius is.
+
+CRITICAL — AVOID FALSE POSITIVES: Before flagging any issue, carefully check whether a fix is already present in the code. If the vulnerable pattern exists but a mitigation is already implemented — even partially — do not flag it as an open issue. Only report problems where the vulnerable pattern exists AND no mitigation is in place. For example: if you see an open redirect risk but also see an allowlist validation function handling it, do not flag the open redirect. If you see a token being read from a session rather than a database, do not flag token storage. Credit fixes that are already in place.
 
 CRITICAL FORMATTING RULE: You must use EXACTLY these ## section headings, spelled and spaced exactly as shown. Do not rename them, combine them, or add extra headings:
 
@@ -246,6 +253,8 @@ CRITICAL FORMATTING RULE: You must use EXACTLY these ## section headings, spelle
             role: "user",
             content: `Do a paid-tier principal engineer audit of this repository. Every observation must reference the exact file and exact code pattern you saw. Do not give advice that isn't directly tied to something you read in the code below.
 
+IMPORTANT: Only flag issues where the vulnerable pattern exists and no fix is already implemented. If you see a fix already in place, acknowledge it in "What's Actually Good" instead of flagging it as an issue.
+
 Repository: ${repoFullName}
 Files reviewed: ${priorityFiles.map((f: any) => f.path).join(', ')}
 
@@ -260,7 +269,7 @@ Use EXACTLY these ## section headings in this order. Skip any section that has n
 2-3 sentences max. Name the single biggest actual threat in this specific codebase. Reference real file names and real variable names you saw.
 
 ## Critical / High Risks
-For each issue found, use this format:
+For each issue found, use this format. Only include issues where NO fix is already present in the code:
 
 ### 1. [Short title of the issue]
 - **Risk level:** Critical | High
@@ -273,7 +282,7 @@ For each issue found, use this format:
 Same ### numbered format. Skip entirely if no real issues found.
 
 ## Security & Auth Review
-Deep analysis of auth flows, token handling, session management, OAuth edge cases. Reference exact patterns you saw.
+Deep analysis of auth flows, token handling, session management, OAuth edge cases. Reference exact patterns you saw. Credit mitigations that are already in place.
 
 ## Performance & Reliability
 Only include if you found real bottlenecks in this specific code. Skip if clean.
@@ -288,7 +297,7 @@ Numbered list, highest production risk first. Each must name the exact file and 
 Max 3 items. Each must name the exact file, the exact current code, and the exact replacement.
 
 ## What's Actually Good
-Only include if something is genuinely well-engineered. Name the file and specific pattern.
+Name fixes and patterns that are already well-implemented. Be specific about what was done right.
 
 ## Top Priority Fix
 File: [exact filename]
@@ -296,16 +305,16 @@ Issue: [one specific sentence]
 Fix: [one sentence with the exact implementation change]
 
 ## Scores
-Based strictly on what you observed in the code, output these scores on separate lines. Be accurate — if you fixed issues you should rate higher than a codebase with unfixed issues. Do not default to round numbers.
+Based strictly on what you observed in the code right now. Be accurate and reflect any fixes already in place.
 Quality: [0-100]
 Security: [0-100]
 Performance: [0-100]
-BlastRadius: [0-99, number of files meaningfully affected by the worst issue you found]
-TechDebt: [8-120, realistic hours to fix everything you flagged]
+BlastRadius: [0-99, number of files meaningfully affected by the worst unfixed issue]
+TechDebt: [8-120, realistic hours to fix everything you flagged as still open]
 
 ## Tech Debt Estimate
 Hours: [same number as TechDebt above]
-Reason: [one sentence naming specific files and changes]`
+Reason: [one sentence naming specific files and changes still needed]`
           }
         ],
       });
@@ -329,8 +338,7 @@ Reason: [one sentence naming specific files and changes]`
       return NextResponse.json({ error: "AI analysis failed: " + claudeError.message }, { status: 500 });
     }
 
-    // Parse scores from the dedicated ## Scores section Claude outputs.
-    // These are Claude's actual judgments, not keyword counts.
+    // Parse scores from Claude's dedicated ## Scores section
     const scoresSection = analysis.match(/## Scores\s*([\s\S]*?)(?=\n##\s|$)/i)?.[1] || '';
 
     const qualityMatch = scoresSection.match(/Quality:\s*(\d+)/i);
@@ -339,7 +347,6 @@ Reason: [one sentence naming specific files and changes]`
     const blastRadiusMatch = scoresSection.match(/BlastRadius:\s*(\d+)/i);
     const techDebtMatch = scoresSection.match(/TechDebt:\s*(\d+)/i);
 
-    // Fall back to reasonable defaults if Claude didn't output a Scores section
     const qualityScore = qualityMatch ? parseInt(qualityMatch[1]) : 70;
     const security = securityMatch ? parseInt(securityMatch[1]) : 70;
     const performance = performanceMatch ? parseInt(performanceMatch[1]) : 70;
