@@ -134,45 +134,65 @@ function getSeverityColor(severity: string) {
   return { text: '#4ade80', bg: 'rgba(74,222,128,0.1)', border: 'rgba(74,222,128,0.2)' };
 }
 
+// Parses Claude's ### N. heading format into issue cards
 function parseIssuesFromAnalysis(analysis: string) {
   const issues: { severity: string; file: string; title: string; desc: string; fix: string }[] = [];
-  const blocks = analysis.split(/(?=- \*\*Risk level)/i).filter(b => b.trim());
+
+  // Split on ### followed by a number — each block is one issue
+  const blocks = analysis.split(/(?=###\s+\d+\.)/).filter(b => b.trim());
 
   for (const block of blocks) {
-    const severityMatch = block.match(/Risk level:\s*\*?\*?([^\*\n]+)\*?\*?/i);
-    const fileMatch = block.match(/File \+ pattern:\s*`?([^`\n]+)`?/i);
-    const attackMatch = block.match(/Attack vector:\s*([^\n]+)/i);
-    const impactMatch = block.match(/Production impact:\s*([^\n]+)/i);
-    const fixMatch = block.match(/Fix:\s*([\s\S]+?)(?=\n- \*\*Risk|\n\n\*\*|$)/i);
-    if (severityMatch) {
-      issues.push({
-        severity: severityMatch[1]?.trim() || 'High',
-        file: fileMatch?.[1]?.trim().replace(/`/g, '') || '',
-        title: attackMatch?.[1]?.trim() || '',
-        desc: impactMatch?.[1]?.trim() || '',
-        fix: fixMatch?.[1]?.trim() || '',
-      });
-    }
+    const lines = block.split('\n').map(l => l.trim()).filter(Boolean);
+    if (lines.length === 0) continue;
+
+    // First line is the ### heading — strip the number prefix to get the title
+    const titleLine = lines[0].replace(/^###\s+\d+\.\s*/, '').trim();
+    if (!titleLine) continue;
+
+    // Helper: find a bold-labelled field anywhere in the block
+    const get = (label: string): string => {
+      const re = new RegExp(`\\*\\*${label}[:\\s]*\\*\\*\\s*(.+)`, 'i');
+      for (const line of lines) {
+        const m = line.match(re);
+        if (m) return m[1].trim();
+      }
+      return '';
+    };
+
+    const riskRaw = get('Risk level');
+    const severity = riskRaw || 'High';
+
+    issues.push({
+      severity,
+      file: get('File \\+ pattern') || get('File'),
+      title: titleLine,
+      desc: get('Production impact') || get('Attack vector'),
+      fix: get('Fix'),
+    });
   }
 
-  const refactoringSection = analysis.match(/\*\*Refactoring Priorities\*\*[^\n]*\n([\s\S]*?)(?=\n\*\*[A-Z]|$)/i);
-  if (refactoringSection) {
-    const lines = refactoringSection[1].split('\n').filter(l => l.match(/^\d+\./));
-    for (const line of lines) {
-      const fileMatch = line.match(/`([^`]+)`/);
-      const text = line.replace(/^\d+\.\s*/, '').replace(/`[^`]+`\s*—?\s*/, '').trim();
-      if (text) {
-        issues.push({
-          severity: 'Medium',
-          file: fileMatch?.[1] || '',
-          title: text,
-          desc: '',
-          fix: '',
-        });
-      }
-    }
-  }
   return issues;
+}
+
+// Extracts the Executive Summary paragraph from Claude's ## heading format
+function extractSummary(analysis: string): string {
+  // Grab everything between "## Executive Summary" and the next ## section or ---
+  const match = analysis.match(/##\s+Executive Summary\s*\n([\s\S]*?)(?=\n##\s|\n---)/i);
+  if (match) {
+    return match[1]
+      .split('\n')
+      .map(l => l.trim())
+      .filter(Boolean)
+      .join(' ');
+  }
+
+  // Fallback: first non-heading, non-empty line with meaningful length
+  const fallback = analysis
+    .split('\n')
+    .map(l => l.trim())
+    .find(l => l.length > 60 && !l.startsWith('#') && !l.startsWith('-') && !l.startsWith('*'));
+
+  return fallback || 'Analysis complete.';
 }
 
 const DEFAULT_STATS = {
@@ -545,7 +565,7 @@ export default function Dashboard() {
                       <h3 className="text-base font-semibold text-white mb-3">Summary Analysis</h3>
                       {isAnalyzing ? <Spinner /> : results?.analysis ? (
                         <p className="text-zinc-400 text-sm leading-relaxed">
-                          {results.analysis.split('\n').find((l: string) => l.length > 60 && !l.startsWith('#') && !l.startsWith('*')) || 'Analysis complete.'}
+                          {extractSummary(results.analysis)}
                         </p>
                       ) : (
                         <p className="text-zinc-500 text-sm leading-relaxed">Select a repository to run an AI analysis.</p>
