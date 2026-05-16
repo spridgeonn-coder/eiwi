@@ -219,9 +219,23 @@ You do not give generic advice. Every single point you make references exact lin
 
 You never say things like "add comments", "use useCallback", or "add error handling" unless you can point to the specific place in the code where it is missing and explain the exact production consequence.
 
-If a section has no real issues, skip it or say the code is clean there. No padding, no obvious advice, no fluff. A senior engineer reading this should learn something they didn't already know.
+If a section has no real issues, skip it entirely — do not include the heading. No padding, no obvious advice, no fluff. A senior engineer reading this should learn something they didn't already know.
 
-When you find issues, you explain the full exploit chain — not just "this is a risk" but exactly how it would be exploited and what the blast radius is.`,
+When you find issues, you explain the full exploit chain — not just "this is a risk" but exactly how it would be exploited and what the blast radius is.
+
+CRITICAL FORMATTING RULE: You must use EXACTLY these ## section headings, spelled and spaced exactly as shown. Do not rename them, combine them, or add extra headings:
+
+## Executive Summary
+## Critical / High Risks
+## Architecture & Design Issues
+## Security & Auth Review
+## Performance & Reliability
+## Code Quality
+## Refactoring Priorities
+## Quick Wins
+## What's Actually Good
+## Top Priority Fix
+## Tech Debt Estimate`,
             cache_control: { type: "ephemeral" }
           }
         ],
@@ -238,48 +252,50 @@ ${codeContext || "Could not fetch files."}
 
 ---
 
-Deliver in this exact structure. Be surgical and specific:
+Use EXACTLY these ## section headings in this order. Skip any section that has no real findings — do not include the heading at all if you have nothing to say.
 
-**Executive Summary**
+## Executive Summary
 2-3 sentences max. Name the single biggest actual threat in this specific codebase. Reference real file names and real variable names you saw.
 
-**Critical / High Risks**
-For each issue found:
-- **Risk level: Critical | High**
-  **File + pattern:** Exact file and the specific code pattern (e.g. \`middleware.ts — supabase.auth.getUser() called outside try/catch, will throw on network failure\`)
-  **Attack vector:** How would an attacker or production outage exploit this right now, concretely?
-  **Production impact:** What specifically breaks, gets exposed, or goes down?
-  **Fix:** The exact code change needed — not "add error handling" but the actual implementation with code.
+## Critical / High Risks
+For each issue found, use this format:
 
-**Architecture & Design Issues**
-Same format — file + exact pattern, not generalities. Skip entirely if no real issues found.
+### 1. [Short title of the issue]
+- **Risk level:** Critical | High
+- **File + pattern:** Exact file and the specific code pattern
+- **Attack vector:** How would an attacker exploit this right now, concretely?
+- **Production impact:** What specifically breaks, gets exposed, or goes down?
+- **Fix:** The exact code change needed with implementation detail.
 
-**Security & Auth Review**
-Go deep on auth flows, token handling, session management, OAuth edge cases specific to this code. Reference exact Supabase and Next.js patterns you saw.
+## Architecture & Design Issues
+Same ### numbered format. Skip entirely if no real issues found.
 
-**Performance & Reliability**
-Only include if you found real bottlenecks in this specific code. No generic React advice.
+## Security & Auth Review
+Deep analysis of auth flows, token handling, session management, OAuth edge cases. Reference exact patterns you saw.
 
-**Code Quality — X/10**
-One paragraph with specific examples from this codebase justifying the score.
+## Performance & Reliability
+Only include if you found real bottlenecks in this specific code. Skip if clean.
 
-**Refactoring Priorities**
-Numbered, highest production risk first. Each must name the exact file and the specific change required.
+## Code Quality
+One paragraph with a score like "7/10" and specific examples from this codebase.
 
-**Quick Wins**
-Max 3 items. Each one must name the exact file, the exact current code, and the exact replacement.
+## Refactoring Priorities
+Numbered list, highest production risk first. Each must name the exact file and specific change.
 
-**What's Actually Good**
-Only include if something is genuinely well-engineered. Name the file and the specific pattern worth keeping.
+## Quick Wins
+Max 3 items. Each must name the exact file, the exact current code, and the exact replacement.
 
-**Top Priority Fix**
-File: [exact filename from the code]
-Issue: [one specific sentence naming the exact variable/function/pattern]
+## What's Actually Good
+Only include if something is genuinely well-engineered. Name the file and specific pattern.
+
+## Top Priority Fix
+File: [exact filename]
+Issue: [one specific sentence]
 Fix: [one sentence with the exact implementation change]
 
-**Tech Debt Estimate**
-Hours: [realistic number between 8 and 120]
-Reason: [one sentence naming the specific files and changes driving that estimate]`
+## Tech Debt Estimate
+Hours: [number between 8 and 120]
+Reason: [one sentence naming specific files and changes]`
           }
         ],
       });
@@ -306,8 +322,8 @@ Reason: [one sentence naming the specific files and changes driving that estimat
     const qualityMatch = analysis.match(/Code Quality[^\d]*(\d+)\s*\/\s*10/i);
     const qualityScore = qualityMatch ? Math.round(parseInt(qualityMatch[1]) * 10) : 75;
 
-    const criticalCount = (analysis.match(/\*\*Risk level: Critical\*\*/gi) || []).length;
-    const highCount = (analysis.match(/\*\*Risk level: High\*\*/gi) || []).length;
+    const criticalCount = (analysis.match(/Risk level:\*?\*?\s*Critical/gi) || []).length;
+    const highCount = (analysis.match(/Risk level:\*?\*?\s*High/gi) || []).length;
     const blastRadius = Math.min(99, (criticalCount * 15) + (highCount * 8) + 20);
 
     const securityIssues = (analysis.match(/security|auth|token|exposure/gi) || []).length;
@@ -319,9 +335,9 @@ Reason: [one sentence naming the specific files and changes driving that estimat
     const techDebtMatch = analysis.match(/Hours:\s*(\d+)/i);
     const techDebt = techDebtMatch ? parseInt(techDebtMatch[1]) : 20;
 
-    const topFixFileMatch = analysis.match(/Top Priority Fix[\s\S]*?File:\s*([^\n]+)/i);
-    const topFixIssueMatch = analysis.match(/Top Priority Fix[\s\S]*?Issue:\s*([^\n]+)/i);
-    const topFixRecommendationMatch = analysis.match(/Top Priority Fix[\s\S]*?Fix:\s*([^\n]+)/i);
+    const topFixFileMatch = analysis.match(/## Top Priority Fix[\s\S]*?File:\s*([^\n]+)/i);
+    const topFixIssueMatch = analysis.match(/## Top Priority Fix[\s\S]*?Issue:\s*([^\n]+)/i);
+    const topFixRecommendationMatch = analysis.match(/## Top Priority Fix[\s\S]*?Fix:\s*([^\n]+)/i);
 
     const topPriorityFix = {
       file: topFixFileMatch?.[1]?.trim() || 'See full analysis',
