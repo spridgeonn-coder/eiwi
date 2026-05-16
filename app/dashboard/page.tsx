@@ -243,9 +243,16 @@ export default function Dashboard() {
       if (userError || !user) { window.location.href = '/login'; return; }
       setUser(user);
 
-      const { data: profile } = await supabase.from('profile').select('github_token').eq('user_id', user.id).single();
-      const token = profile?.github_token ?? null;
-      if (!token) { setTokenError(true); setLoadingRepos(false); setLoadingLastAnalysis(false); return; }
+      // Read GitHub token from session — we no longer persist it to the profile table
+      const { data: { session: currentSession } } = await supabase.auth.getSession();
+      const token = currentSession?.provider_token ?? null;
+      if (!token) {
+        // Session exists but provider_token is missing — user needs to re-authenticate with GitHub
+        setTokenError(true);
+        setLoadingRepos(false);
+        setLoadingLastAnalysis(false);
+        return;
+      }
       setGithubToken(token);
 
       try {
