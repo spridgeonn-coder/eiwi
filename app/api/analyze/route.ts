@@ -8,6 +8,18 @@ const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 });
 
+// FIX 2: Validate repoFullName is strictly "owner/repo" before using it anywhere.
+// Prevents path traversal (../../etc) and prompt injection via malicious repo names.
+function isValidRepoFullName(value: unknown): value is string {
+  if (typeof value !== 'string') return false;
+  return /^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/.test(value);
+}
+
+function isValidRepoName(value: unknown): value is string {
+  if (typeof value !== 'string') return false;
+  return /^[a-zA-Z0-9_.-]+$/.test(value) && value.length <= 100;
+}
+
 async function fetchDirRecursive(
   repoFullName: string,
   token: string,
@@ -56,7 +68,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Auth service unavailable" }, { status: 503 });
     }
 
-    // Get GitHub token from session first, fall back to profile table
+    // FIX 1: Read token from session only — no profile table fallback.
+    // The fallback was removed because we no longer persist tokens to the DB.
+    // If the session token is missing the user needs to re-authenticate.
     let token: string | null = null;
     try {
       const { data: { session } } = await supabase.auth.getSession();
@@ -64,21 +78,26 @@ export async function POST(request: NextRequest) {
     } catch {}
 
     if (!token) {
-      try {
-        const { data: profile } = await supabase
-          .from('profile')
-          .select('github_token')
-          .eq('user_id', user.id)
-          .single();
-        token = profile?.github_token ?? null;
-      } catch {}
+      return NextResponse.json({
+        error: "GitHub token missing. Please sign out and reconnect GitHub."
+      }, { status: 401 });
     }
 
-    if (!token) return NextResponse.json({
-      error: "GitHub token missing. Please reconnect GitHub in your profile."
-    }, { status: 401 });
+    // FIX 2: Validate inputs before doing anything with them
+    const body = await request.json();
+    const { repoFullName, repoName } = body;
 
-    const { repoFullName, repoName } = await request.json();
+    if (!isValidRepoFullName(repoFullName)) {
+      return NextResponse.json({
+        error: "Invalid repository name. Expected format: owner/repo"
+      }, { status: 400 });
+    }
+
+    if (!isValidRepoName(repoName)) {
+      return NextResponse.json({
+        error: "Invalid repository name."
+      }, { status: 400 });
+    }
 
     // Rate limiting — 10 per day
     try {
@@ -116,27 +135,23 @@ export async function POST(request: NextRequest) {
       }
     } catch {}
 
-    // Race condition guard
-    try {
-      const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
-      const { data: inProgress } = await supabase
-        .from('analysis_log')
-        .select('id')
-        .eq('user_id', user.id)
-        .eq('repo_full_name', repoFullName)
-        .eq('status', 'in_progress')
-        .gte('created_at', fiveMinutesAgo)
-        .single();
-
-      if (inProgress) {
-        return NextResponse.json({ error: "Analysis already in progress for this repo." }, { status: 409 });
-      }
-    } catch {}
-
-    // Log as in_progress
+    // FIX 3: Atomic race condition guard.
+    // The old approach was: read to check for in_progress, then separately insert.
+    // Two concurrent requests both read "nothing in progress" simultaneously, both
+    // pass the check, both insert — race condition bypasses the guard entirely.
+    //
+    // The fix: skip the read. Just try to INSERT directly. If a unique constraint
+    // on (user_id, repo_full_name) WHERE status = 'in_progress' already exists,
+    // Postgres rejects the second insert with error code 23505 and we return 409.
+    // This is atomic — no gap between check and insert.
+    //
+    // Run this once in Supabase SQL editor to enable this:
+    //   CREATE UNIQUE INDEX analysis_in_progress_once
+    //   ON analysis_log (user_id, repo_full_name)
+    //   WHERE status = 'in_progress';
     let logId: string | null = null;
     try {
-      const { data: log, error: logError } = await supabase
+      const { data: log, error: insertError } = await supabase
         .from('analysis_log')
         .insert({
           user_id: user.id,
@@ -147,7 +162,14 @@ export async function POST(request: NextRequest) {
         .select('id')
         .single();
 
-      if (logError) console.error('Failed to insert log:', logError.message);
+      if (insertError) {
+        // 23505 = unique constraint violation — another request already in progress
+        if (insertError.code === '23505') {
+          return NextResponse.json({ error: "Analysis already in progress for this repo." }, { status: 409 });
+        }
+        console.error('Failed to insert log:', insertError.message);
+      }
+
       logId = log?.id ?? null;
     } catch (e) {
       console.error('Log insert exception:', e);
@@ -202,7 +224,6 @@ export async function POST(request: NextRequest) {
       } catch (_) {}
     }
 
-    // ✅ Claude with prompt caching to reduce costs
     let analysis = "No analysis generated.";
     try {
       const response = await anthropic.messages.create({
@@ -220,7 +241,6 @@ You never say things like "add comments", "use useCallback", or "add error handl
 If a section has no real issues, skip it or say the code is clean there. No padding, no obvious advice, no fluff. A senior engineer reading this should learn something they didn't already know.
 
 When you find issues, you explain the full exploit chain — not just "this is a risk" but exactly how it would be exploited and what the blast radius is.`,
-            // ✅ Cache the system prompt — saves tokens on every repeated call
             cache_control: { type: "ephemeral" }
           }
         ],
@@ -288,7 +308,6 @@ Reason: [one sentence naming the specific files and changes driving that estimat
         .map((block: any) => block.text)
         .join('\n');
 
-      // Log token usage for monitoring
       console.log('Claude token usage:', {
         input: response.usage.input_tokens,
         output: response.usage.output_tokens,
@@ -361,7 +380,6 @@ Reason: [one sentence naming the specific files and changes driving that estimat
       }
     };
 
-    // Save result and mark complete
     if (logId) {
       try {
         const { error: updateError } = await supabase
