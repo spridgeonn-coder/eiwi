@@ -209,7 +209,8 @@ export async function POST(request: NextRequest) {
     try {
       const response = await anthropic.messages.create({
         model: "claude-sonnet-4-5",
-        max_tokens: 3000,
+        // Raised from 3000 — previous limit was cutting off sections mid-report
+        max_tokens: 6000,
         system: [
           {
             type: "text",
@@ -235,6 +236,7 @@ CRITICAL FORMATTING RULE: You must use EXACTLY these ## section headings, spelle
 ## Quick Wins
 ## What's Actually Good
 ## Top Priority Fix
+## Scores
 ## Tech Debt Estimate`,
             cache_control: { type: "ephemeral" }
           }
@@ -277,7 +279,7 @@ Deep analysis of auth flows, token handling, session management, OAuth edge case
 Only include if you found real bottlenecks in this specific code. Skip if clean.
 
 ## Code Quality
-One paragraph with a score like "7/10" and specific examples from this codebase.
+One paragraph with specific examples from this codebase justifying the score.
 
 ## Refactoring Priorities
 Numbered list, highest production risk first. Each must name the exact file and specific change.
@@ -293,8 +295,16 @@ File: [exact filename]
 Issue: [one specific sentence]
 Fix: [one sentence with the exact implementation change]
 
+## Scores
+Based strictly on what you observed in the code, output these scores on separate lines. Be accurate — if you fixed issues you should rate higher than a codebase with unfixed issues. Do not default to round numbers.
+Quality: [0-100]
+Security: [0-100]
+Performance: [0-100]
+BlastRadius: [0-99, number of files meaningfully affected by the worst issue you found]
+TechDebt: [8-120, realistic hours to fix everything you flagged]
+
 ## Tech Debt Estimate
-Hours: [number between 8 and 120]
+Hours: [same number as TechDebt above]
 Reason: [one sentence naming specific files and changes]`
           }
         ],
@@ -319,20 +329,21 @@ Reason: [one sentence naming specific files and changes]`
       return NextResponse.json({ error: "AI analysis failed: " + claudeError.message }, { status: 500 });
     }
 
-    const qualityMatch = analysis.match(/Code Quality[^\d]*(\d+)\s*\/\s*10/i);
-    const qualityScore = qualityMatch ? Math.round(parseInt(qualityMatch[1]) * 10) : 75;
+    // Parse scores from the dedicated ## Scores section Claude outputs.
+    // These are Claude's actual judgments, not keyword counts.
+    const scoresSection = analysis.match(/## Scores\s*([\s\S]*?)(?=\n##\s|$)/i)?.[1] || '';
 
-    const criticalCount = (analysis.match(/Risk level:\*?\*?\s*Critical/gi) || []).length;
-    const highCount = (analysis.match(/Risk level:\*?\*?\s*High/gi) || []).length;
-    const blastRadius = Math.min(99, (criticalCount * 15) + (highCount * 8) + 20);
+    const qualityMatch = scoresSection.match(/Quality:\s*(\d+)/i);
+    const securityMatch = scoresSection.match(/Security:\s*(\d+)/i);
+    const performanceMatch = scoresSection.match(/Performance:\s*(\d+)/i);
+    const blastRadiusMatch = scoresSection.match(/BlastRadius:\s*(\d+)/i);
+    const techDebtMatch = scoresSection.match(/TechDebt:\s*(\d+)/i);
 
-    const securityIssues = (analysis.match(/security|auth|token|exposure/gi) || []).length;
-    const security = Math.max(10, 100 - (securityIssues * 3));
-
-    const perfIssues = (analysis.match(/performance|slow|latency|optimize/gi) || []).length;
-    const performance = Math.max(10, 100 - (perfIssues * 4));
-
-    const techDebtMatch = analysis.match(/Hours:\s*(\d+)/i);
+    // Fall back to reasonable defaults if Claude didn't output a Scores section
+    const qualityScore = qualityMatch ? parseInt(qualityMatch[1]) : 70;
+    const security = securityMatch ? parseInt(securityMatch[1]) : 70;
+    const performance = performanceMatch ? parseInt(performanceMatch[1]) : 70;
+    const blastRadius = blastRadiusMatch ? Math.min(99, parseInt(blastRadiusMatch[1])) : 20;
     const techDebt = techDebtMatch ? parseInt(techDebtMatch[1]) : 20;
 
     const topFixFileMatch = analysis.match(/## Top Priority Fix[\s\S]*?File:\s*([^\n]+)/i);
