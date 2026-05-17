@@ -4,16 +4,32 @@ import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { ArrowLeft } from "lucide-react";
 
+const AGREED_KEY = 'eiwi_terms_agreed';
+
 export default function Login() {
   const [loading, setLoading] = useState(false);
   const [agreed, setAgreed] = useState(false);
 
   useEffect(() => {
     document.title = 'Sign In | eiwi';
+
+    // Restore agreement from localStorage — users only need to agree once
+    const previouslyAgreed = localStorage.getItem(AGREED_KEY) === 'true';
+    if (previouslyAgreed) setAgreed(true);
+
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session) window.location.href = '/dashboard';
     });
   }, []);
+
+  const handleAgree = (value: boolean) => {
+    setAgreed(value);
+    if (value) {
+      localStorage.setItem(AGREED_KEY, 'true');
+    } else {
+      localStorage.removeItem(AGREED_KEY);
+    }
+  };
 
   const handleGitHubLogin = async () => {
     if (loading || !agreed) return;
@@ -56,7 +72,7 @@ export default function Login() {
           style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)' }}>
           {[
             { icon: '🔒', text: 'Read-only access — we never modify your code' },
-            { icon: '🤖', text: 'Code is sent to OpenAI for analysis only' },
+            { icon: '🤖', text: 'Code is sent to Claude AI for analysis only' },
             { icon: '🗑️', text: 'Source files are never stored on our servers' },
           ].map((item, i) => (
             <div key={i} className="flex items-start gap-3">
@@ -66,17 +82,16 @@ export default function Login() {
           ))}
         </div>
 
-        {/* Checkbox agreement */}
+        {/* Checkbox agreement — label handles the toggle, no competing onClick */}
         <label className="flex items-start gap-3 mb-6 cursor-pointer text-left">
           <div className="relative flex-shrink-0 mt-0.5">
             <input
               type="checkbox"
               checked={agreed}
-              onChange={e => setAgreed(e.target.checked)}
+              onChange={e => handleAgree(e.target.checked)}
               className="sr-only"
             />
             <div
-              onClick={() => setAgreed(a => !a)}
               className="w-5 h-5 rounded-md border flex items-center justify-center transition-all"
               style={{
                 background: agreed ? 'linear-gradient(135deg, #a855f7, #7c3aed)' : 'transparent',
@@ -99,7 +114,7 @@ export default function Login() {
             <a href="/privacy" target="_blank" className="text-violet-400 hover:text-violet-300 underline transition-colors">
               Privacy Policy
             </a>
-            , and understand that my code will be sent to OpenAI for analysis.
+            , and understand that my code will be sent to Claude AI for analysis.
           </span>
         </label>
 
