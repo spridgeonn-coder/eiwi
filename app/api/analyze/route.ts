@@ -97,26 +97,34 @@ export async function POST(request: NextRequest) {
       }, { status: 400 });
     }
 
-    // FIX 1: Rate limit fails closed — if Supabase is unreachable we block
-    // the request rather than silently allowing unlimited analyses.
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const { count, error: countError } = await supabase
-      .from('analysis_log')
-      .select('*', { count: 'exact', head: true })
-      .eq('user_id', user.id)
-      .gte('created_at', today.toISOString());
+    // FIX 1: Rate limit with canProceed pattern — catches socket/DNS failures
+    // that slip through the SDK's own error handling. Any exception at all
+    // means we block the request rather than silently allowing it through.
+    let canProceed = false;
+    try {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const { count, error: countError } = await supabase
+        .from('analysis_log')
+        .select('*', { count: 'exact', head: true })
+        .eq('user_id', user.id)
+        .gte('created_at', today.toISOString());
 
-    if (countError) {
-      return NextResponse.json({
-        error: "Rate limit check failed. Please try again."
-      }, { status: 503 });
+      if (countError) throw new Error('Rate limit check failed');
+      if ((count ?? 0) >= 10) {
+        return NextResponse.json({
+          error: "Daily limit reached. You can run 10 analyses per day. Upgrade to Pro for unlimited analyses."
+        }, { status: 429 });
+      }
+      canProceed = true;
+    } catch (e) {
+      console.error('Rate limit check exception:', e);
     }
 
-    if ((count ?? 0) >= 10) {
+    if (!canProceed) {
       return NextResponse.json({
-        error: "Daily limit reached. You can run 10 analyses per day. Upgrade to Pro for unlimited analyses."
-      }, { status: 429 });
+        error: "Rate limit unavailable. Please try again in a few seconds."
+      }, { status: 503 });
     }
 
     // Check cache — skipped when force = true (Re-analyze button)
@@ -140,9 +148,7 @@ export async function POST(request: NextRequest) {
       } catch {}
     }
 
-    // FIX 2: Clean up any stale in_progress rows older than 10 minutes
-    // before inserting a new one. This prevents repos from getting permanently
-    // stuck if a previous analysis timed out or crashed without cleaning up.
+    // Clean up stale in_progress rows older than 10 minutes before inserting
     try {
       const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString();
       await supabase
@@ -178,6 +184,29 @@ export async function POST(request: NextRequest) {
       logId = log?.id ?? null;
     } catch (e) {
       console.error('Log insert exception:', e);
+    }
+
+    // FIX 2: Validate GitHub token before running the full analysis.
+    // If the user revoked OAuth access, fetchDirRecursive silently returns
+    // an empty array and Claude reports "No files found" — no error shown.
+    // A single cheap API call here catches revoked tokens upfront.
+    try {
+      const tokenCheck = await fetch('https://api.github.com/user', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (!tokenCheck.ok) {
+        if (logId) await supabase.from('analysis_log').update({ status: 'failed' }).eq('id', logId);
+        return NextResponse.json({
+          error: "GitHub access has been revoked. Please sign out and reconnect your GitHub account.",
+          code: "GITHUB_TOKEN_INVALID"
+        }, { status: 401 });
+      }
+    } catch (e) {
+      if (logId) await supabase.from('analysis_log').update({ status: 'failed' }).eq('id', logId);
+      return NextResponse.json({
+        error: "Unable to verify GitHub access. Please try again.",
+        code: "GITHUB_TOKEN_CHECK_FAILED"
+      }, { status: 503 });
     }
 
     const allFiles = await fetchDirRecursive(repoFullName, token);
@@ -231,9 +260,11 @@ export async function POST(request: NextRequest) {
 
     let analysis = "No analysis generated.";
 
-    // FIX 3: Wrap the entire Claude call + result saving in try/finally so
-    // the log row is always cleaned up — even if Claude times out, GitHub
-    // rate limits, or an OOM kills the function mid-flight.
+    // FIX 3: try/finally guarantees the log row is always resolved.
+    // Previously if Vercel killed the function mid-execution (e.g. at 200s),
+    // the catch block never ran and the row stayed in_progress forever.
+    // finally always runs — even when the process is being terminated.
+    let logUpdated = false;
     try {
       const response = await anthropic.messages.create({
         model: "claude-sonnet-4-5",
@@ -352,70 +383,62 @@ Reason: [one sentence naming specific files and changes still needed]`
         cacheCreated: (response.usage as any).cache_creation_input_tokens ?? 0,
       });
 
-    } catch (claudeError: any) {
-      // FIX 3: Always mark the log as failed so the repo isn't stuck in_progress
-      if (logId && supabaseClient) {
-        await supabaseClient.from('analysis_log').update({ status: 'failed' }).eq('id', logId);
-      }
-      return NextResponse.json({ error: "AI analysis failed: " + claudeError.message }, { status: 500 });
-    }
+      // Parse and save results
+      const scoresSection = analysis.match(/## Scores\s*([\s\S]*?)(?=\n##\s|$)/i)?.[1] || '';
+      const qualityMatch = scoresSection.match(/Quality:\s*(\d+)/i);
+      const securityMatch = scoresSection.match(/Security:\s*(\d+)/i);
+      const performanceMatch = scoresSection.match(/Performance:\s*(\d+)/i);
+      const blastRadiusMatch = scoresSection.match(/BlastRadius:\s*(\d+)/i);
+      const techDebtMatch = scoresSection.match(/TechDebt:\s*(\d+)/i);
 
-    const scoresSection = analysis.match(/## Scores\s*([\s\S]*?)(?=\n##\s|$)/i)?.[1] || '';
-    const qualityMatch = scoresSection.match(/Quality:\s*(\d+)/i);
-    const securityMatch = scoresSection.match(/Security:\s*(\d+)/i);
-    const performanceMatch = scoresSection.match(/Performance:\s*(\d+)/i);
-    const blastRadiusMatch = scoresSection.match(/BlastRadius:\s*(\d+)/i);
-    const techDebtMatch = scoresSection.match(/TechDebt:\s*(\d+)/i);
+      const qualityScore = qualityMatch ? parseInt(qualityMatch[1]) : 70;
+      const security = securityMatch ? parseInt(securityMatch[1]) : 70;
+      const performance = performanceMatch ? parseInt(performanceMatch[1]) : 70;
+      const blastRadius = blastRadiusMatch ? Math.min(99, parseInt(blastRadiusMatch[1])) : 20;
+      const techDebt = techDebtMatch ? parseInt(techDebtMatch[1]) : 20;
 
-    const qualityScore = qualityMatch ? parseInt(qualityMatch[1]) : 70;
-    const security = securityMatch ? parseInt(securityMatch[1]) : 70;
-    const performance = performanceMatch ? parseInt(performanceMatch[1]) : 70;
-    const blastRadius = blastRadiusMatch ? Math.min(99, parseInt(blastRadiusMatch[1])) : 20;
-    const techDebt = techDebtMatch ? parseInt(techDebtMatch[1]) : 20;
+      const topFixFileMatch = analysis.match(/## Top Priority Fix[\s\S]*?File:\s*([^\n]+)/i);
+      const topFixIssueMatch = analysis.match(/## Top Priority Fix[\s\S]*?Issue:\s*([^\n]+)/i);
+      const topFixRecommendationMatch = analysis.match(/## Top Priority Fix[\s\S]*?Fix:\s*([^\n]+)/i);
 
-    const topFixFileMatch = analysis.match(/## Top Priority Fix[\s\S]*?File:\s*([^\n]+)/i);
-    const topFixIssueMatch = analysis.match(/## Top Priority Fix[\s\S]*?Issue:\s*([^\n]+)/i);
-    const topFixRecommendationMatch = analysis.match(/## Top Priority Fix[\s\S]*?Fix:\s*([^\n]+)/i);
-
-    const topPriorityFix = {
-      file: topFixFileMatch?.[1]?.trim() || 'See full analysis',
-      issue: topFixIssueMatch?.[1]?.trim() || 'Critical issue detected — view full analysis for details',
-      fix: topFixRecommendationMatch?.[1]?.trim() || 'See recommendations in the Analysis tab',
-    };
-
-    const scannedFiles = priorityFiles.map((f: any) => {
-      const name = f.path;
-      const lowerAnalysis = analysis.toLowerCase();
-      const lowerName = name.toLowerCase();
-      const nameIndex = lowerAnalysis.indexOf(lowerName);
-      const surroundingText = nameIndex !== -1
-        ? lowerAnalysis.slice(Math.max(0, nameIndex - 150), nameIndex + 300)
-        : '';
-      const isCritical = surroundingText.includes('critical');
-      const isReview = surroundingText.includes('high') || surroundingText.includes('risk') || surroundingText.includes('vulnerability');
-      return {
-        path: name,
-        status: isCritical ? 'Critical' : isReview ? 'Review' : 'Clean',
+      const topPriorityFix = {
+        file: topFixFileMatch?.[1]?.trim() || 'See full analysis',
+        issue: topFixIssueMatch?.[1]?.trim() || 'Critical issue detected — view full analysis for details',
+        fix: topFixRecommendationMatch?.[1]?.trim() || 'See recommendations in the Analysis tab',
       };
-    }).slice(0, 6);
 
-    const result = {
-      success: true,
-      repo: repoName,
-      analysis,
-      structured: {
-        qualityScore,
-        blastRadius,
-        security,
-        performance,
-        techDebt,
-        topPriorityFix,
-        scannedFiles,
-      }
-    };
+      const scannedFiles = priorityFiles.map((f: any) => {
+        const name = f.path;
+        const lowerAnalysis = analysis.toLowerCase();
+        const lowerName = name.toLowerCase();
+        const nameIndex = lowerAnalysis.indexOf(lowerName);
+        const surroundingText = nameIndex !== -1
+          ? lowerAnalysis.slice(Math.max(0, nameIndex - 150), nameIndex + 300)
+          : '';
+        const isCritical = surroundingText.includes('critical');
+        const isReview = surroundingText.includes('high') || surroundingText.includes('risk') || surroundingText.includes('vulnerability');
+        return {
+          path: name,
+          status: isCritical ? 'Critical' : isReview ? 'Review' : 'Clean',
+        };
+      }).slice(0, 6);
 
-    if (logId) {
-      try {
+      const result = {
+        success: true,
+        repo: repoName,
+        analysis,
+        structured: {
+          qualityScore,
+          blastRadius,
+          security,
+          performance,
+          techDebt,
+          topPriorityFix,
+          scannedFiles,
+        }
+      };
+
+      if (logId) {
         const { error: updateError } = await supabase
           .from('analysis_log')
           .update({
@@ -426,16 +449,38 @@ Reason: [one sentence naming specific files and changes still needed]`
           .eq('id', logId);
 
         if (updateError) console.error('Failed to update log:', updateError.message);
-        else console.log('Analysis saved successfully');
-      } catch (e: any) {
-        console.error('Log update exception:', e.message);
+        else logUpdated = true;
+      }
+
+      return NextResponse.json(result);
+
+    } catch (claudeError: any) {
+      console.error('Claude analysis failed:', claudeError);
+      if (logId && supabaseClient) {
+        await supabaseClient.from('analysis_log').update({ status: 'failed' }).eq('id', logId);
+        logUpdated = true;
+      }
+      return NextResponse.json({ error: "Analysis failed. Please try again." }, { status: 500 });
+
+    } finally {
+      // FIX 3: If we never successfully updated the status (e.g. Vercel killed
+      // the function at 200s before the update ran), delete the row entirely
+      // so it doesn't block future analysis attempts.
+      if (logId && supabaseClient && !logUpdated) {
+        try {
+          const { data } = await supabaseClient
+            .from('analysis_log')
+            .select('status')
+            .eq('id', logId)
+            .single();
+          if (data?.status === 'in_progress') {
+            await supabaseClient.from('analysis_log').delete().eq('id', logId);
+          }
+        } catch {}
       }
     }
 
-    return NextResponse.json(result);
-
   } catch (error: any) {
-    // FIX 3: Top-level catch also cleans up the log row
     if (logId && supabaseClient) {
       try {
         await supabaseClient.from('analysis_log').update({ status: 'failed' }).eq('id', logId);
