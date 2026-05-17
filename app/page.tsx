@@ -3,6 +3,374 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 
+function EiwiDemo() {
+  const [phase, setPhase] = useState<'scan' | 'overview' | 'analysis'>('scan');
+  const [stepIndex, setStepIndex] = useState(0);
+  const [progress, setProgress] = useState(0);
+  const [elapsed, setElapsed] = useState(0);
+  const [gauge, setGauge] = useState(0);
+  const [m1, setM1] = useState(0);
+  const [m2, setM2] = useState(0);
+  const [m3, setM3] = useState(0);
+  const [m4, setM4] = useState(0);
+  const [summaryText, setSummaryText] = useState('');
+  const [showVlink, setShowVlink] = useState(false);
+  const [showBadge, setShowBadge] = useState(false);
+  const [activeTab, setActiveTab] = useState<'overview' | 'analysis' | 'issues'>('overview');
+
+  const steps = [
+    'Connecting to GitHub...',
+    'Fetching files from api-core...',
+    'Reading code across your repository...',
+    'Running AI security audit...',
+    'Analyzing security vulnerabilities...',
+    'Calculating blast radius and tech debt...',
+    'Processing results...',
+  ];
+
+  const summaryFull = "The biggest threat is app/api/auth/route.ts:34 — JWT secret falls back to 'dev-secret-key' when JWT_SECRET is unset, letting an attacker forge valid admin tokens using a string that's in your git history. Additionally, lib/session.ts:89 never invalidates tokens on logout.";
+
+  const circumference = 201;
+  const gaugeOffset = circumference - (gauge / 100) * circumference;
+
+  useEffect(() => {
+    let timeout: NodeJS.Timeout;
+
+    const reset = () => {
+      setPhase('scan');
+      setActiveTab('overview');
+      setStepIndex(0);
+      setProgress(0);
+      setElapsed(0);
+      setGauge(0);
+      setM1(0); setM2(0); setM3(0); setM4(0);
+      setSummaryText('');
+      setShowVlink(false);
+      setShowBadge(false);
+    };
+
+    reset();
+
+    // Elapsed timer
+    let et = 0;
+    const elapsedTimer = setInterval(() => {
+      et++;
+      setElapsed(et);
+    }, 1000);
+
+    // Step through scan
+    let si = 0;
+    const stepTimer = setInterval(() => {
+      if (si < steps.length) {
+        setStepIndex(si);
+        setProgress(Math.round((si / steps.length) * 92));
+        si++;
+      } else {
+        clearInterval(stepTimer);
+      }
+    }, 560);
+
+    // Transition to overview
+    timeout = setTimeout(() => {
+      clearInterval(elapsedTimer);
+      clearInterval(stepTimer);
+      setProgress(100);
+      setTimeout(() => {
+        setPhase('overview');
+        setActiveTab('overview');
+
+        // Animate gauge
+        let g = 0;
+        const gTimer = setInterval(() => {
+          g += 2;
+          if (g >= 72) { setGauge(72); clearInterval(gTimer); }
+          else setGauge(g);
+        }, 25);
+
+        // Animate counts
+        let counts = [0, 0, 0, 0];
+        const targets = [47, 31, 88, 28];
+        const setters = [setM1, setM2, setM3, setM4];
+        const cTimer = setInterval(() => {
+          let done = true;
+          counts = counts.map((c, i) => {
+            const next = Math.min(targets[i], c + Math.ceil(targets[i] / 50));
+            setters[i](next);
+            if (next < targets[i]) done = false;
+            return next;
+          });
+          if (done) clearInterval(cTimer);
+        }, 20);
+
+        // Type summary
+        setTimeout(() => {
+          let i = 0;
+          const typeTimer = setInterval(() => {
+            i++;
+            setSummaryText(summaryFull.slice(0, i));
+            if (i >= summaryFull.length) {
+              clearInterval(typeTimer);
+              setShowVlink(true);
+            }
+          }, 18);
+        }, 400);
+      }, 350);
+    }, 4400);
+
+    // Transition to analysis
+    const analysisTimeout = setTimeout(() => {
+      setPhase('analysis');
+      setActiveTab('analysis');
+      setShowBadge(true);
+    }, 10000);
+
+    // Loop
+    const loopTimeout = setTimeout(() => {
+      reset();
+    }, 21000);
+
+    return () => {
+      clearInterval(elapsedTimer);
+      clearInterval(stepTimer);
+      clearTimeout(timeout);
+      clearTimeout(analysisTimeout);
+      clearTimeout(loopTimeout);
+    };
+  }, []);
+
+  const pillStyle = (color: string): React.CSSProperties => ({
+    fontSize: '10px',
+    fontWeight: 600,
+    padding: '2px 8px',
+    borderRadius: '6px',
+    color,
+    background: 'rgba(0,0,0,0.3)',
+  });
+
+  const namePillStyle: React.CSSProperties = {
+    fontSize: '10px',
+    color: '#aaa',
+    background: 'rgba(255,255,255,0.06)',
+    padding: '2px 8px',
+    borderRadius: '6px',
+  };
+
+  const statCards = [
+    { name: 'Blast Radius', val: m1, unit: 'files at risk', sub: 'Files affected by a breaking change', color: '#f87171', bg: '#1a0d0d', border: 'rgba(248,113,113,0.18)', lbl: 'Critical', lc: '#f87171' },
+    { name: 'Security', val: m2, unit: '/ 100', sub: 'Auth, token & env variable exposure', color: '#f87171', bg: '#1a0d0d', border: 'rgba(248,113,113,0.18)', lbl: 'Critical', lc: '#f87171' },
+    { name: 'Performance', val: m3, unit: '/ 100', sub: 'Runtime efficiency & load time', color: '#4ade80', bg: '#0d1a12', border: 'rgba(74,222,128,0.18)', lbl: 'Good', lc: '#4ade80' },
+    { name: 'Tech Debt', val: m4, unit: 'hrs to fix', sub: 'Estimated cleanup effort', color: '#fb923c', bg: '#1a140d', border: 'rgba(251,146,60,0.18)', lbl: 'Moderate', lc: '#fb923c' },
+  ];
+
+  const sections = [
+    { dot: '#f87171', name: 'Executive Summary' },
+    { dot: '#f87171', name: 'Critical / High Risks', badge: '3 issues' },
+    { dot: '#fb923c', name: 'Architecture & Design Issues' },
+    { dot: '#fb923c', name: 'Security & Auth Review' },
+    { dot: '#a78bfa', name: 'Performance & Reliability' },
+    { dot: '#a78bfa', name: 'Code Quality' },
+    { dot: '#a78bfa', name: 'Refactoring Priorities' },
+    { dot: '#4ade80', name: 'Quick Wins' },
+    { dot: '#4ade80', name: "What's Actually Good" },
+  ];
+
+  const codeStyle: React.CSSProperties = { fontFamily: 'monospace', fontSize: '10px', color: '#c4b5fd', background: 'rgba(167,139,250,0.1)', padding: '1px 4px', borderRadius: '3px' };
+
+  return (
+    <div style={{ background: '#0b0b14', borderRadius: '10px', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.07)', width: '100%', maxWidth: '860px', margin: '0 auto', fontFamily: '-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif' }}>
+      {/* Title bar */}
+      <div style={{ background: '#0d0d17', padding: '8px 14px', display: 'flex', alignItems: 'center', gap: '10px', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+        <div style={{ display: 'flex', gap: '5px' }}>
+          <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#ff5f57' }} />
+          <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#febc2e' }} />
+          <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#28c840' }} />
+        </div>
+        <div style={{ fontSize: '11px', color: '#333', background: 'rgba(255,255,255,0.03)', padding: '2px 16px', borderRadius: '4px', flex: 1, textAlign: 'center' }}>app.eiwi.io/dashboard</div>
+      </div>
+
+      {/* Nav */}
+      <div style={{ background: 'rgba(0,0,0,0.5)', borderBottom: '1px solid rgba(255,255,255,0.06)', display: 'flex', alignItems: 'center', padding: '0 20px', height: '44px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginRight: '32px' }}>
+          <div style={{ width: '24px', height: '24px', background: 'linear-gradient(135deg,#a855f7,#7c3aed)', borderRadius: '7px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <svg width="10" height="10" viewBox="0 0 14 14" fill="none"><path d="M2 7L6 11L12 3" stroke="white" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+          </div>
+          <span style={{ fontSize: '15px', fontWeight: 600, color: 'white' }}>eiwi</span>
+        </div>
+        <div style={{ display: 'flex', height: '100%', flex: 1 }}>
+          {(['overview', 'analysis', 'issues'] as const).map(t => (
+            <div key={t} style={{ fontSize: '12px', color: activeTab === t ? 'white' : '#555', padding: '0 14px', height: '100%', display: 'flex', alignItems: 'center', borderBottom: activeTab === t ? '2px solid #a855f7' : '2px solid transparent', gap: '5px' }}>
+              {t.charAt(0).toUpperCase() + t.slice(1)}
+              {t === 'issues' && showBadge && <span style={{ background: 'rgba(248,113,113,0.2)', color: '#f87171', fontSize: '10px', padding: '1px 5px', borderRadius: '4px', fontWeight: 600 }}>6</span>}
+            </div>
+          ))}
+        </div>
+        <div style={{ width: '28px', height: '28px', borderRadius: '8px', background: 'linear-gradient(135deg,#a855f7,#ec4899)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '10px', fontWeight: 700, color: 'white' }}>JC</div>
+      </div>
+
+      {/* Body */}
+      <div style={{ display: 'flex', height: '440px' }}>
+        {/* Sidebar */}
+        <div style={{ width: '188px', flexShrink: 0, borderRight: '1px solid rgba(255,255,255,0.05)', padding: '14px 10px' }}>
+          <div style={{ fontSize: '9px', color: '#2e2e40', textTransform: 'uppercase', letterSpacing: '1.5px', marginBottom: '10px', fontWeight: 500 }}>Repository</div>
+          {[
+            { name: 'api-core', sub: phase === 'scan' ? 'Analyzing...' : 'Last analyzed just now', active: true, spinning: phase === 'scan' },
+            { name: 'frontend', sub: 'Click to analyze', active: false, spinning: false },
+            { name: 'auth-service', sub: 'Click to analyze', active: false, spinning: false },
+          ].map(r => (
+            <div key={r.name} style={{ padding: '9px 10px', borderRadius: '12px', marginBottom: '5px', display: 'flex', alignItems: 'center', gap: '8px', background: r.active ? 'rgba(124,58,237,0.1)' : 'rgba(255,255,255,0.015)', border: `1px solid ${r.active ? 'rgba(124,58,237,0.3)' : 'rgba(255,255,255,0.04)'}` }}>
+              <div style={{ width: '28px', height: '28px', background: 'linear-gradient(135deg,#7c3aed,#5b21b6)', borderRadius: '9px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '8px', fontWeight: 700, color: 'rgba(255,255,255,0.7)', flexShrink: 0 }}>AI</div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: '11px', color: '#d4d4d4', fontWeight: 500 }}>{r.name}</div>
+                <div style={{ fontSize: '9px', color: '#3a3a50', marginTop: '1px' }}>{r.sub}</div>
+              </div>
+              {r.spinning && <div style={{ width: '11px', height: '11px', border: '2px solid rgba(139,92,246,0.25)', borderTopColor: '#8b5cf6', borderRadius: '50%', animation: 'spin 1s linear infinite', flexShrink: 0 }} />}
+            </div>
+          ))}
+        </div>
+
+        {/* Main */}
+        <div style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
+
+          {/* SCAN */}
+          {phase === 'scan' && (
+            <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '9px' }}>
+              <div style={{ width: '40px', height: '40px', border: '2px solid rgba(139,92,246,0.2)', borderTopColor: '#8b5cf6', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
+              <div style={{ fontSize: '15px', fontWeight: 700, color: 'white' }}>Analyzing api-core</div>
+              <div style={{ fontSize: '12px', color: '#555' }}>{steps[Math.min(stepIndex, steps.length - 1)]}</div>
+              <div style={{ width: '150px', height: '2px', background: 'rgba(255,255,255,0.05)', borderRadius: '1px' }}>
+                <div style={{ height: '2px', borderRadius: '1px', background: '#8b5cf6', width: `${progress}%`, transition: 'width 0.7s ease' }} />
+              </div>
+              <div style={{ fontSize: '10px', color: '#2a2a3a' }}>{elapsed}s elapsed</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '7px', marginTop: '10px', width: '240px' }}>
+                {steps.slice(0, stepIndex + 1).map((s, i) => (
+                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <div style={{ width: '14px', height: '14px', borderRadius: '50%', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: i < stepIndex ? '#7c3aed' : 'transparent', border: i < stepIndex ? 'none' : '2px solid #8b5cf6' }}>
+                      {i < stepIndex && <svg width="7" height="7" viewBox="0 0 8 8" fill="none"><path d="M1 4L3 6L7 2" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+                    </div>
+                    <span style={{ fontSize: '11px', color: i < stepIndex ? '#3a3a50' : '#bbb' }}>{s}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* OVERVIEW */}
+          {phase === 'overview' && (
+            <div style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '10px', height: '100%', overflow: 'hidden' }}>
+              <div>
+                <div style={{ fontSize: '24px', fontWeight: 700, color: 'white', letterSpacing: '-0.5px', lineHeight: 1 }}>Welcome back, jordan</div>
+                <div style={{ fontSize: '12px', color: '#444', marginTop: '3px' }}>Your AI Code Intelligence Platform</div>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '170px 1fr', gap: '10px', flexShrink: 0 }}>
+                <div style={{ background: 'linear-gradient(145deg,#1e1045,#120830,#0b0620)', border: '1px solid rgba(139,92,246,0.2)', borderRadius: '20px', padding: '14px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+                  <div style={{ fontSize: '8px', textTransform: 'uppercase', letterSpacing: '1.5px', color: 'rgba(196,181,253,0.4)', marginBottom: '8px', fontWeight: 500 }}>Code Quality Score</div>
+                  <div style={{ position: 'relative', width: '80px', height: '80px' }}>
+                    <svg width="80" height="80" viewBox="0 0 80 80" style={{ transform: 'rotate(-90deg)' }}>
+                      <circle cx="40" cy="40" r="32" fill="none" stroke="rgba(255,255,255,0.05)" strokeWidth="7"/>
+                      <circle cx="40" cy="40" r="32" fill="none" stroke="#a855f7" strokeWidth="7" strokeLinecap="round" strokeDasharray={circumference} strokeDashoffset={gaugeOffset} style={{ transition: 'stroke-dashoffset 0.05s' }}/>
+                    </svg>
+                    <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', fontSize: '20px', fontWeight: 700, color: 'white' }}>{gauge}%</div>
+                  </div>
+                  <div style={{ fontSize: '11px', fontWeight: 600, marginTop: '6px', color: '#fb923c' }}>Moderate</div>
+                  <div style={{ fontSize: '9px', color: '#1a1a2a', marginTop: '2px' }}>Overall repo health</div>
+                </div>
+                <div style={{ background: '#111119', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '20px', padding: '14px', display: 'flex', flexDirection: 'column' }}>
+                  <div style={{ fontSize: '12px', fontWeight: 600, color: 'white', marginBottom: '7px' }}>Summary Analysis</div>
+                  <div style={{ fontSize: '10px', color: '#6a6a80', lineHeight: 1.7, flex: 1 }}>{summaryText}</div>
+                  {showVlink && <div style={{ fontSize: '10px', color: '#a855f7', marginTop: '7px' }}>View full analysis →</div>}
+                </div>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: '8px', flexShrink: 0 }}>
+                {statCards.map(c => (
+                  <div key={c.name} style={{ borderRadius: '18px', padding: '12px 14px', background: c.bg, border: `1px solid ${c.border}` }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                      <span style={namePillStyle}>{c.name}</span>
+                      <span style={pillStyle(c.lc)}>{c.lbl}</span>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: '4px', marginBottom: '4px' }}>
+                      <span style={{ fontSize: '30px', fontWeight: 700, color: c.color, lineHeight: 1 }}>{c.val}</span>
+                      <span style={{ fontSize: '11px', color: '#555' }}>{c.unit}</span>
+                    </div>
+                    <div style={{ fontSize: '9px', color: '#2e2e2e' }}>{c.sub}</div>
+                  </div>
+                ))}
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', flex: 1, minHeight: 0 }}>
+                <div style={{ background: '#111119', border: '1px solid rgba(248,113,113,0.2)', borderRadius: '20px', padding: '14px', display: 'flex', flexDirection: 'column' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '5px', marginBottom: '8px' }}>
+                    <div style={{ width: '5px', height: '5px', borderRadius: '50%', background: '#f87171' }} />
+                    <span style={{ fontSize: '8px', color: '#f87171', textTransform: 'uppercase', letterSpacing: '1.2px', fontWeight: 600 }}>Top Priority Fix</span>
+                  </div>
+                  <div style={{ fontSize: '11px', fontWeight: 600, color: '#f0f0f5', lineHeight: 1.4, marginBottom: '3px' }}>JWT signed with hardcoded fallback — forge any admin session in 30 seconds</div>
+                  <div style={{ fontSize: '9px', color: '#a78bfa', fontFamily: 'monospace', marginBottom: '8px' }}>app/api/auth/route.ts — line 34</div>
+                  <div style={{ background: 'rgba(248,113,113,0.06)', borderRadius: '8px', padding: '8px 10px', flex: 1 }}>
+                    <div style={{ fontSize: '9px', fontFamily: 'monospace', color: '#fca5a5', lineHeight: 1.6 }}>Throw on startup if JWT_SECRET is missing; never use a fallback string</div>
+                  </div>
+                </div>
+                <div style={{ background: '#111119', border: '1px solid rgba(255,255,255,0.05)', borderRadius: '20px', padding: '14px' }}>
+                  <div style={{ fontSize: '8px', color: '#333', textTransform: 'uppercase', letterSpacing: '1.2px', fontWeight: 600, marginBottom: '8px' }}>Files Scanned</div>
+                  {[
+                    { path: 'app/api/auth/route.ts', status: 'Critical', color: '#f87171', bg: 'rgba(248,113,113,0.12)' },
+                    { path: 'lib/session.ts', status: 'Critical', color: '#f87171', bg: 'rgba(248,113,113,0.12)' },
+                    { path: 'middleware.ts', status: 'Review', color: '#fb923c', bg: 'rgba(251,146,60,0.12)' },
+                    { path: 'hooks/useAuth.ts', status: 'Review', color: '#fb923c', bg: 'rgba(251,146,60,0.12)' },
+                    { path: 'components/Nav.tsx', status: 'Clean', color: '#4ade80', bg: 'rgba(74,222,128,0.1)' },
+                    { path: 'utils/validate.ts', status: 'Clean', color: '#4ade80', bg: 'rgba(74,222,128,0.1)' },
+                  ].map(f => (
+                    <div key={f.path} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+                      <span style={{ fontSize: '9px', fontFamily: 'monospace', color: '#6366f1' }}>{f.path}</span>
+                      <span style={{ fontSize: '8px', padding: '2px 6px', borderRadius: '4px', fontWeight: 600, color: f.color, background: f.bg }}>{f.status}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ANALYSIS */}
+          {phase === 'analysis' && (
+            <div style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '7px', height: '100%', overflow: 'hidden' }}>
+              <div>
+                <div style={{ fontSize: '20px', fontWeight: 700, color: 'white', letterSpacing: '-0.3px' }}>api-core</div>
+                <div style={{ fontSize: '11px', color: '#444', marginTop: '2px', marginBottom: '2px' }}>AI analysis complete</div>
+              </div>
+              {sections.map((s, i) => (
+                <div key={s.name} style={{ background: '#16161f', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '12px', overflow: 'hidden', flexShrink: 0 }}>
+                  <div style={{ padding: '11px 16px', display: 'flex', alignItems: 'center', gap: '9px' }}>
+                    <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: s.dot, flexShrink: 0 }} />
+                    <span style={{ fontSize: '12px', fontWeight: 700, color: '#f0f0f5', flex: 1 }}>{s.name}</span>
+                    {s.badge && <span style={{ fontSize: '9px', padding: '2px 7px', borderRadius: '5px', fontWeight: 700, color: '#f87171', background: 'rgba(248,113,113,0.12)', border: '1px solid rgba(248,113,113,0.2)' }}>{s.badge}</span>}
+                    <span style={{ color: '#444', fontSize: '13px' }}>⌄</span>
+                  </div>
+                  {i === 1 && (
+                    <div style={{ padding: '14px 18px', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '9px', flexWrap: 'wrap' as const }}>
+                        <span style={{ fontSize: '9px', fontFamily: 'monospace', color: '#c4b5fd', background: 'rgba(167,139,250,0.1)', border: '1px solid rgba(167,139,250,0.2)', padding: '2px 8px', borderRadius: '5px' }}>app/api/auth/route.ts:34</span>
+                        <span style={{ fontSize: '9px', fontWeight: 700, padding: '2px 7px', borderRadius: '5px', marginLeft: 'auto', color: '#f87171', background: 'rgba(248,113,113,0.12)', border: '1px solid rgba(248,113,113,0.2)' }}>Critical</span>
+                      </div>
+                      <div style={{ fontSize: '12px', fontWeight: 700, color: '#f0f0f5', marginBottom: '4px', lineHeight: 1.4 }}>JWT signed with hardcoded fallback — attacker can forge admin tokens for any user ID</div>
+                      <div style={{ fontSize: '10px', color: '#9090a8', lineHeight: 1.65 }}>jwt.sign(payload, process.env.JWT_SECRET || 'dev-secret-key') silently falls back when JWT_SECRET is unset. An attacker opens DevTools, runs jwt.sign(&#123;id:1,role:"admin"&#125;, "dev-secret-key") and has a valid admin session. No server access needed — this string is in your git history.</div>
+                      <div style={{ marginTop: '10px', padding: '10px 12px', borderLeft: '2px solid #8b5cf6', background: 'rgba(139,92,246,0.07)', borderRadius: '0 5px 5px 0' }}>
+                        <div style={{ fontSize: '8px', color: '#a78bfa', fontWeight: 700, letterSpacing: '1.2px', textTransform: 'uppercase' as const, marginBottom: '5px' }}>Fix</div>
+                        <pre style={{ fontSize: '9px', fontFamily: 'monospace', color: '#ddd6fe', lineHeight: 1.7, whiteSpace: 'pre-wrap' as const, margin: 0 }}>{`if (!process.env.JWT_SECRET) throw new Error('JWT_SECRET env var required');
+const token = jwt.sign(payload, process.env.JWT_SECRET, {
+  expiresIn: '15m', algorithm: 'HS256'
+});`}</pre>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
+        </div>
+      </div>
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+    </div>
+  );
+}
+
 export default function Home() {
   const [checking, setChecking] = useState(true);
 
@@ -64,144 +432,10 @@ export default function Home() {
         <p style={{ fontSize: '11px', color: '#444', marginTop: '12px' }}>Read-only · No credit card · Takes 30 seconds</p>
       </div>
 
-      {/* Screenshot */}
+      {/* Animated Demo */}
       <div style={{ padding: '0 24px 52px' }}>
         <p style={{ textAlign: 'center', fontSize: '10px', color: '#444', letterSpacing: '2px', textTransform: 'uppercase', marginBottom: '28px' }}>Real output from a real analysis</p>
-
-        <div style={{ background: '#0d0d18', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '14px', overflow: 'hidden', maxWidth: '900px', margin: '0 auto' }}>
-          {/* Browser bar */}
-          <div style={{ background: '#0a0a12', borderBottom: '1px solid rgba(255,255,255,0.05)', padding: '8px 14px', display: 'flex', alignItems: 'center', gap: '5px' }}>
-            <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#ff5f57' }} />
-            <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#febc2e' }} />
-            <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#28c840' }} />
-            <span style={{ marginLeft: '10px', fontSize: '10px', color: '#333', fontFamily: 'monospace' }}>app.eiwi.io/dashboard</span>
-          </div>
-
-          {/* App nav */}
-          <div style={{ background: 'rgba(0,0,0,0.6)', borderBottom: '1px solid rgba(255,255,255,0.05)', padding: '8px 14px', display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-              <div style={{ width: '20px', height: '20px', background: 'linear-gradient(135deg, #a855f7, #7c3aed)', borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <svg width="9" height="9" viewBox="0 0 14 14" fill="none"><path d="M2 7L6 11L12 3" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
-              </div>
-              <span style={{ fontSize: '11px', fontWeight: 600 }}>eiwi</span>
-            </div>
-            <div style={{ display: 'flex', gap: '12px', marginLeft: '12px' }}>
-              {['Overview', 'Analysis', 'Issues'].map((t, i) => (
-                <span key={t} style={{ fontSize: '10px', color: i === 0 ? 'white' : '#555', paddingBottom: '1px', borderBottom: i === 0 ? '1.5px solid #a855f7' : 'none' }}>
-                  {t}{i === 2 && <span style={{ background: 'rgba(248,113,113,0.2)', color: '#f87171', fontSize: '8px', padding: '1px 4px', borderRadius: '3px', marginLeft: '3px' }}>6</span>}
-                </span>
-              ))}
-            </div>
-            <div style={{ width: '22px', height: '22px', borderRadius: '7px', background: 'linear-gradient(135deg, #a855f7, #7c3aed)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '9px', fontWeight: 700, marginLeft: 'auto' }}>JC</div>
-          </div>
-
-          {/* App body */}
-          <div style={{ display: 'flex' }}>
-            {/* Sidebar */}
-            <div style={{ width: '130px', padding: '10px', borderRight: '1px solid rgba(255,255,255,0.04)', flexShrink: 0 }}>
-              <div style={{ fontSize: '8px', color: '#333', letterSpacing: '1.5px', textTransform: 'uppercase', marginBottom: '8px' }}>Repository</div>
-              {[
-                { name: 'api-core', sub: 'Just analyzed', active: true },
-                { name: 'frontend', sub: 'Click to analyze', active: false },
-                { name: 'auth-service', sub: 'Click to analyze', active: false },
-              ].map(r => (
-                <div key={r.name} style={{ padding: '7px 8px', borderRadius: '7px', border: `1px solid ${r.active ? 'rgba(168,85,247,0.4)' : 'transparent'}`, background: r.active ? 'rgba(168,85,247,0.08)' : 'transparent', marginBottom: '5px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <div style={{ width: '20px', height: '20px', background: 'linear-gradient(135deg, #7c3aed, #6d28d9)', borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '6px', fontWeight: 700, flexShrink: 0 }}>AI</div>
-                  <div>
-                    <div style={{ fontSize: '9px', fontWeight: 500 }}>{r.name}</div>
-                    <div style={{ fontSize: '8px', color: '#444' }}>{r.sub}</div>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            {/* Main */}
-            <div style={{ flex: 1, padding: '12px 14px', minWidth: 0 }}>
-              <div style={{ fontSize: '16px', fontWeight: 700, letterSpacing: '-0.5px', marginBottom: '1px' }}>Welcome back, jordan</div>
-              <div style={{ fontSize: '9px', color: '#555', marginBottom: '12px' }}>Your AI Code Intelligence Platform</div>
-
-              {/* Top row */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.6fr', gap: '8px', marginBottom: '8px' }}>
-                <div style={{ background: 'linear-gradient(145deg,#2d1b69,#1a0f3c,#0f0820)', border: '1px solid rgba(139,92,246,0.3)', borderRadius: '10px', padding: '10px 12px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                  <div style={{ fontSize: '7px', color: 'rgba(167,139,250,0.5)', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '6px' }}>Code quality score</div>
-                  <svg width="66" height="66" viewBox="0 0 70 70">
-                    <circle cx="35" cy="35" r="27" fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth="5"/>
-                    <circle cx="35" cy="35" r="27" fill="none" stroke="#a855f7" strokeWidth="5" strokeLinecap="round" strokeDasharray="169.6" strokeDashoffset="50.9" transform="rotate(-90 35 35)"/>
-                    <text x="35" y="39" textAnchor="middle" fill="white" fontSize="13" fontWeight="700">78%</text>
-                  </svg>
-                  <div style={{ fontSize: '9px', fontWeight: 600, color: '#fb923c', marginTop: '2px' }}>Moderate</div>
-                  <div style={{ fontSize: '7px', color: '#555', marginTop: '1px' }}>Overall repo health</div>
-                </div>
-
-                <div style={{ background: '#111119', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '10px', padding: '10px 12px' }}>
-                  <div style={{ fontSize: '10px', fontWeight: 600, marginBottom: '6px' }}>Summary Analysis</div>
-                  <div style={{ fontSize: '9px', color: '#888', lineHeight: 1.6 }}>
-                    The biggest threat is in{' '}
-                    <span style={{ fontFamily: 'monospace', fontSize: '8px', color: '#a78bfa', background: 'rgba(167,139,250,0.1)', padding: '1px 5px', borderRadius: '4px' }}>routes/users.ts:47</span>
-                    {' '}— the{' '}
-                    <span style={{ fontFamily: 'monospace', fontSize: '8px', color: '#a78bfa', background: 'rgba(167,139,250,0.1)', padding: '1px 5px', borderRadius: '4px' }}>DELETE /admin/users/:id</span>
-                    {' '}endpoint has no authentication middleware. Any unauthenticated HTTP request can permanently delete any user from the database right now.
-                    <br /><br />
-                    Additionally,{' '}
-                    <span style={{ fontFamily: 'monospace', fontSize: '8px', color: '#a78bfa', background: 'rgba(167,139,250,0.1)', padding: '1px 5px', borderRadius: '4px' }}>lib/db.ts:23</span>
-                    {' '}exposes raw Postgres error messages to the client, leaking your schema on malformed queries.
-                  </div>
-                  <div style={{ fontSize: '8px', color: '#7c3aed', marginTop: '6px', cursor: 'pointer' }}>View full analysis →</div>
-                </div>
-              </div>
-
-              {/* Stats */}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: '6px', marginBottom: '8px' }}>
-                {[
-                  { badge: 'Blast Radius', val: '31', unit: 'files', sub: 'Files at risk', color: '#f87171', bg: 'rgba(248,113,113,0.08)', border: 'rgba(248,113,113,0.25)', sev: 'Critical' },
-                  { badge: 'Security', val: '38', unit: '/ 100', sub: 'Exposure risk', color: '#f87171', bg: 'rgba(248,113,113,0.08)', border: 'rgba(248,113,113,0.25)', sev: 'Critical' },
-                  { badge: 'Performance', val: '91', unit: '/ 100', sub: 'Runtime efficiency', color: '#4ade80', bg: 'rgba(74,222,128,0.08)', border: 'rgba(74,222,128,0.25)', sev: 'Good' },
-                  { badge: 'Tech Debt', val: '34', unit: 'hrs', sub: 'Cleanup effort', color: '#fb923c', bg: 'rgba(251,146,60,0.08)', border: 'rgba(251,146,60,0.25)', sev: 'Moderate' },
-                ].map(c => (
-                  <div key={c.badge} style={{ background: c.bg, border: `1px solid ${c.border}`, borderRadius: '8px', padding: '7px 9px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span style={{ fontSize: '7px', padding: '1px 5px', borderRadius: '3px', background: 'rgba(255,255,255,0.05)', color: '#aaa' }}>{c.badge}</span>
-                      <span style={{ fontSize: '7px', fontWeight: 600, padding: '1px 5px', borderRadius: '3px', color: c.color, background: 'rgba(0,0,0,0.2)' }}>{c.sev}</span>
-                    </div>
-                    <div style={{ fontSize: '15px', fontWeight: 700, marginTop: '4px', color: c.color }}>{c.val}<span style={{ fontSize: '8px', color: '#555', marginLeft: '2px' }}>{c.unit}</span></div>
-                    <div style={{ fontSize: '7px', color: '#555', marginTop: '1px' }}>{c.sub}</div>
-                  </div>
-                ))}
-              </div>
-
-              {/* Bottom row */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-                <div style={{ background: '#111119', border: '1px solid rgba(248,113,113,0.25)', borderRadius: '10px', padding: '10px 12px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '5px', marginBottom: '8px' }}>
-                    <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#f87171' }} />
-                    <span style={{ fontSize: '8px', fontWeight: 600, color: '#f87171', textTransform: 'uppercase', letterSpacing: '1px' }}>Top priority fix</span>
-                  </div>
-                  <div style={{ fontSize: '9px', fontWeight: 600, color: '#f0f0f5', marginBottom: '4px', lineHeight: 1.4 }}>Unauthenticated DELETE endpoint — anyone can wipe your user table</div>
-                  <span style={{ fontFamily: 'monospace', fontSize: '8px', color: '#a78bfa', display: 'block', marginBottom: '6px' }}>routes/users.ts — line 47</span>
-                  <div style={{ background: 'rgba(248,113,113,0.08)', borderRadius: '6px', padding: '6px 8px', fontSize: '8px', fontFamily: 'monospace', color: '#fca5a5', lineHeight: 1.5 }}>
-                    Fix: router.delete('/admin/users/:id', requireAuth, deleteUser)
-                  </div>
-                </div>
-                <div style={{ background: '#111119', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '10px', padding: '10px 12px' }}>
-                  <div style={{ fontSize: '8px', fontWeight: 600, color: '#444', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '8px' }}>Files scanned</div>
-                  {[
-                    { name: 'routes/users.ts', status: 'Critical', color: '#f87171', bg: 'rgba(248,113,113,0.12)' },
-                    { name: 'lib/db.ts', status: 'Critical', color: '#f87171', bg: 'rgba(248,113,113,0.12)' },
-                    { name: 'middleware/auth.ts', status: 'Review', color: '#fb923c', bg: 'rgba(251,146,60,0.12)' },
-                    { name: 'models/user.ts', status: 'Review', color: '#fb923c', bg: 'rgba(251,146,60,0.12)' },
-                    { name: 'config/database.ts', status: 'Clean', color: '#4ade80', bg: 'rgba(74,222,128,0.1)' },
-                    { name: 'utils/validation.ts', status: 'Clean', color: '#4ade80', bg: 'rgba(74,222,128,0.1)' },
-                  ].map(f => (
-                    <div key={f.name} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '5px' }}>
-                      <span style={{ fontSize: '8px', fontFamily: 'monospace', color: '#6366f1' }}>{f.name}</span>
-                      <span style={{ fontSize: '7px', padding: '1px 6px', borderRadius: '4px', fontWeight: 600, color: f.color, background: f.bg }}>{f.status}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
+        <EiwiDemo />
       </div>
 
       {/* Features */}
