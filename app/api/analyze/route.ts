@@ -4,6 +4,12 @@ import { createServerClient } from '@supabase/ssr';
 
 export const maxDuration = 200;
 
+// FIX: Validate ANTHROPIC_API_KEY at module load time so the error surfaces
+// immediately on deploy rather than silently failing on every user request.
+if (!process.env.ANTHROPIC_API_KEY) {
+  throw new Error('ANTHROPIC_API_KEY environment variable is required but not set');
+}
+
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 });
@@ -18,35 +24,48 @@ function isValidRepoName(value: unknown): value is string {
   return /^[a-zA-Z0-9_.-]+$/.test(value) && value.length <= 100;
 }
 
+// FIX: Added totalBytes accumulator to prevent OOM on repos with large files.
+// Without this, 80 files × 50MB each = 4GB which exceeds Vercel's 1GB serverless limit.
+// We cap total file size at 50MB across all collected files.
+const MAX_TOTAL_BYTES = 50 * 1024 * 1024; // 50MB
+
 async function fetchDirRecursive(
   repoFullName: string,
   token: string,
   path: string = '',
   depth: number = 0,
-  collected: any[] = []
-): Promise<any[]> {
-  if (depth > 3 || collected.length > 80) return collected;
+  collected: any[] = [],
+  totalBytes: number = 0
+): Promise<{ files: any[]; totalBytes: number }> {
+  if (depth > 3 || collected.length > 80 || totalBytes > MAX_TOTAL_BYTES) {
+    return { files: collected, totalBytes };
+  }
   try {
     const url = path
       ? `https://api.github.com/repos/${repoFullName}/contents/${path}`
       : `https://api.github.com/repos/${repoFullName}/contents`;
     const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
-    if (!res.ok) return collected;
+    if (!res.ok) return { files: collected, totalBytes };
     const items = await res.json();
-    if (!Array.isArray(items)) return collected;
+    if (!Array.isArray(items)) return { files: collected, totalBytes };
 
     for (const item of items) {
+      if (totalBytes > MAX_TOTAL_BYTES || collected.length > 80) break;
       if (item.type === 'file') {
+        const fileSize = item.size || 0;
+        if (totalBytes + fileSize > MAX_TOTAL_BYTES) continue; // skip this file, keep going
         collected.push(item);
+        totalBytes += fileSize;
       } else if (item.type === 'dir') {
         const skip = ['node_modules', '.git', '.next', 'dist', 'build', 'coverage', 'public', '.husky', 'vendor'];
         if (!skip.includes(item.name)) {
-          await fetchDirRecursive(repoFullName, token, item.path, depth + 1, collected);
+          const result = await fetchDirRecursive(repoFullName, token, item.path, depth + 1, collected, totalBytes);
+          totalBytes = result.totalBytes;
         }
       }
     }
   } catch (_) {}
-  return collected;
+  return { files: collected, totalBytes };
 }
 
 // Detect the primary language of the repo based on file extensions
@@ -290,7 +309,7 @@ export async function POST(request: NextRequest) {
       }, { status: 503 });
     }
 
-    const allFiles = await fetchDirRecursive(repoFullName, token);
+    const { files: allFiles } = await fetchDirRecursive(repoFullName, token);
 
     // Detect repo language so we can prioritize the right files
     const detectedLang = detectLanguage(allFiles);
