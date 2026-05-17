@@ -6,19 +6,14 @@ import remarkGfm from 'remark-gfm';
 
 function parseSection(content: string, heading: string): string {
   const escaped = heading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
-  // Try ## heading format (Claude)
   const hashMatch = content.match(
     new RegExp(`##\\s+${escaped}[^\\n]*\\n([\\s\\S]*?)(?=\\n##\\s|\\n#\\s|$)`)
   );
   if (hashMatch) return hashMatch[1].trim();
-
-  // Try **bold** format (OpenAI fallback)
   const boldMatch = content.match(
     new RegExp(`\\*\\*${escaped}\\*\\*[^\\n]*\\n([\\s\\S]*?)(?=\\n\\*\\*[A-Z]|$)`)
   );
   if (boldMatch) return boldMatch[1].trim();
-
   return '';
 }
 
@@ -29,29 +24,36 @@ function parseSeverityBadge(text: string): { label: string; color: string; bg: s
   return { label: 'Low', color: '#4ade80', bg: 'rgba(74,222,128,0.1)', border: 'rgba(74,222,128,0.2)' };
 }
 
-function parseRisks(text: string) {
+// Parses ### N. numbered blocks — used for Critical Risks and Architecture only
+function parseNumberedBlocks(text: string) {
   const issues: { file: string; title: string; desc: string; fix: string; severity: string }[] = [];
-
   const blocks = text.split(/(?=###\s+\d+\.|(?=- \*\*Risk level))/i).filter(b => b.trim());
 
   for (const block of blocks) {
+    const titleMatch = block.match(/^###\s+\d+\.\s*(.+)/m);
     const severityMatch = block.match(/\*\*Risk level:\*?\*?\s*([^\*\n]+)/i)
       || block.match(/Risk level:\s*\*?\*?([^\*\n]+)\*?\*?/i);
     const fileMatch = block.match(/\*\*File \+ pattern:\*?\*?\s*`?([^`\n]+)`?/i)
-      || block.match(/File \+ pattern:\s*`?([^`\n]+)`?/i);
+      || block.match(/File \+ pattern:\s*`?([^`\n]+)`?/i)
+      || block.match(/\*\*File:\*?\*?\s*`?([^`\n]+)`?/i);
     const attackMatch = block.match(/\*\*Attack vector:\*?\*?\s*([\s\S]+?)(?=\n-\s*\*\*|\n###|$)/i)
       || block.match(/Attack vector:\s*([^\n]+)/i);
     const impactMatch = block.match(/\*\*Production impact:\*?\*?\s*([\s\S]+?)(?=\n-\s*\*\*|\n###|$)/i)
-      || block.match(/Production impact:\s*([^\n]+)/i);
+      || block.match(/Production impact:\s*([^\n]+)/i)
+      || block.match(/\*\*Impact:\*?\*?\s*([\s\S]+?)(?=\n-\s*\*\*|\n###|$)/i);
     const fixMatch = block.match(/\*\*Fix:\*?\*?\s*([\s\S]+?)(?=\n###\s+\d+\.|$)/i)
       || block.match(/Fix:\s*([\s\S]+?)(?=\n- \*\*Risk|\n\n\*\*|$)/i);
 
-    if (severityMatch || fileMatch) {
+    const title = titleMatch?.[1]?.trim()
+      || attackMatch?.[1]?.trim().split('\n')[0]
+      || '';
+
+    if (titleMatch || severityMatch || fileMatch) {
       issues.push({
         severity: severityMatch?.[1]?.trim() || 'High',
         file: fileMatch?.[1]?.trim().replace(/`/g, '') || '',
-        title: attackMatch?.[1]?.trim().split('\n')[0] || '',
-        desc: impactMatch?.[1]?.trim().split('\n')[0] || '',
+        title,
+        desc: impactMatch?.[1]?.trim().split('\n')[0] || attackMatch?.[1]?.trim().split('\n')[0] || '',
         fix: fixMatch?.[1]?.trim() || '',
       });
     }
@@ -59,26 +61,8 @@ function parseRisks(text: string) {
   return issues;
 }
 
-function parseKeyValueSection(text: string) {
-  const items: { file: string; issue: string; fix: string }[] = [];
-  const blocks = text.split(/(?=\n?[-\d]+\.?\s*\*\*File|\n?[-\d]+\.?\s*`)/i).filter(b => b.trim());
-  for (const block of blocks) {
-    const fileMatch = block.match(/\*\*File:\*\*\s*`?([^`\n]+)`?/i)
-      || block.match(/`([^`\n]+\.(?:tsx?|jsx?|md|json))`/i);
-    const issueMatch = block.match(/\*\*(?:Current code|Issue|Pattern):\*\*\s*([^\n]+)/i);
-    const fixMatch = block.match(/\*\*(?:Replacement|Fix):\*\*\s*([^\n]+)/i);
-    if (fileMatch) {
-      items.push({
-        file: fileMatch[1]?.trim() || '',
-        issue: issueMatch?.[1]?.trim() || '',
-        fix: fixMatch?.[1]?.trim() || '',
-      });
-    }
-  }
-  return items;
-}
-
 function FilePill({ name }: { name: string }) {
+  if (!name) return null;
   return (
     <span style={{ fontSize: '11px', fontFamily: 'monospace', color: '#c4b5fd', background: 'rgba(167,139,250,0.12)', border: '1px solid rgba(167,139,250,0.2)', padding: '3px 10px', borderRadius: '6px', display: 'inline-block' }}>
       {name}
@@ -121,11 +105,12 @@ function CollapsibleSection({
   );
 }
 
+// Full issue card — Critical Risks and Architecture & Design Issues
 function IssueBlock({ file, title, desc, fix, severity }: { file: string; title: string; desc: string; fix: string; severity: string }) {
   const badge = parseSeverityBadge(severity);
   return (
     <div style={{ padding: '16px 20px', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px', flexWrap: 'wrap' }}>
         {file && <FilePill name={file} />}
         <span style={{ fontSize: '10px', padding: '3px 9px', borderRadius: '6px', fontWeight: 700, color: badge.color, background: badge.bg, border: `1px solid ${badge.border}`, marginLeft: 'auto', flexShrink: 0 }}>
           {badge.label}
@@ -139,9 +124,9 @@ function IssueBlock({ file, title, desc, fix, severity }: { file: string; title:
           <ReactMarkdown
             remarkPlugins={[remarkGfm]}
             components={{
-              p: ({ children }) => <p style={{ fontSize: '11px', fontFamily: 'monospace', color: '#ddd6fe', lineHeight: 1.7, margin: 0 }}>{children}</p>,
-              code: ({ children }) => <code style={{ fontSize: '11px', fontFamily: 'monospace', color: '#ddd6fe' }}>{children}</code>,
-              pre: ({ children }) => <pre style={{ margin: '8px 0 0', overflowX: 'auto', fontSize: '11px', color: '#ddd6fe' }}>{children}</pre>,
+              p: ({ children }) => <p style={{ fontSize: '11px', fontFamily: 'monospace', color: '#ddd6fe', lineHeight: 1.7, margin: '0 0 4px' }}>{children}</p>,
+              code: ({ children }) => <code style={{ fontSize: '11px', fontFamily: 'monospace', color: '#ddd6fe', background: 'rgba(255,255,255,0.06)', padding: '1px 4px', borderRadius: '3px' }}>{children}</code>,
+              pre: ({ children }) => <pre style={{ margin: '6px 0 0', overflowX: 'auto', fontSize: '11px', color: '#ddd6fe', background: 'rgba(0,0,0,0.2)', padding: '8px', borderRadius: '6px' }}>{children}</pre>,
             }}
           >{fix}</ReactMarkdown>
         </div>
@@ -150,41 +135,33 @@ function IssueBlock({ file, title, desc, fix, severity }: { file: string; title:
   );
 }
 
-function KeyValueBlock({ file, issue, fix }: { file: string; issue: string; fix: string }) {
-  return (
-    <div style={{ padding: '14px 20px', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-      {file && <div style={{ marginBottom: '8px' }}><FilePill name={file} /></div>}
-      {issue && <p style={{ fontSize: '12px', color: '#9090a8', lineHeight: 1.65, margin: '0 0 8px' }}>{issue}</p>}
-      {fix && (
-        <div style={{ padding: '10px 14px', borderLeft: '2px solid #8b5cf6', background: 'rgba(139,92,246,0.08)' }}>
-          <div style={{ fontSize: '10px', color: '#a78bfa', fontWeight: 700, letterSpacing: '1.2px', textTransform: 'uppercase', marginBottom: '4px' }}>Fix</div>
-          <p style={{ fontSize: '11px', fontFamily: 'monospace', color: '#ddd6fe', lineHeight: 1.6, margin: 0 }}>{fix}</p>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function SimpleMarkdown({ text }: { text: string }) {
+// Full markdown renderer — used for all prose and list-based sections.
+// Handles bold labels, inline code, fenced code blocks, numbered lists,
+// bullet lists, and multi-line content without truncating anything.
+function RichMarkdown({ text }: { text: string }) {
   return (
     <div style={{ padding: '16px 20px' }}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
           p: ({ children }) => <p style={{ fontSize: '13px', color: '#c4c4d4', lineHeight: 1.75, margin: '0 0 10px' }}>{children}</p>,
-          li: ({ children }) => <li style={{ fontSize: '13px', color: '#c4c4d4', lineHeight: 1.75, marginBottom: '6px' }}>{children}</li>,
-          ul: ({ children }) => <ul style={{ paddingLeft: '18px', margin: '0 0 10px' }}>{children}</ul>,
-          ol: ({ children }) => <ol style={{ paddingLeft: '18px', margin: '0 0 10px' }}>{children}</ol>,
+          li: ({ children }) => <li style={{ fontSize: '13px', color: '#c4c4d4', lineHeight: 1.75, marginBottom: '8px' }}>{children}</li>,
+          ul: ({ children }) => <ul style={{ paddingLeft: '18px', margin: '0 0 12px' }}>{children}</ul>,
+          ol: ({ children }) => <ol style={{ paddingLeft: '18px', margin: '0 0 12px' }}>{children}</ol>,
           strong: ({ children }) => <strong style={{ color: '#f0f0f5', fontWeight: 600 }}>{children}</strong>,
-          h1: ({ children }) => <h1 style={{ fontSize: '16px', fontWeight: 700, color: '#f0f0f5', margin: '16px 0 8px' }}>{children}</h1>,
-          h2: ({ children }) => <h2 style={{ fontSize: '14px', fontWeight: 700, color: '#f0f0f5', margin: '14px 0 6px' }}>{children}</h2>,
-          h3: ({ children }) => <h3 style={{ fontSize: '13px', fontWeight: 700, color: '#f0f0f5', margin: '12px 0 6px' }}>{children}</h3>,
+          em: ({ children }) => <em style={{ color: '#a78bfa', fontStyle: 'italic' }}>{children}</em>,
+          h3: ({ children }) => <h3 style={{ fontSize: '13px', fontWeight: 700, color: '#f0f0f5', margin: '16px 0 6px', paddingBottom: '4px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>{children}</h3>,
+          h4: ({ children }) => <h4 style={{ fontSize: '12px', fontWeight: 600, color: '#a78bfa', margin: '12px 0 4px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{children}</h4>,
           code: ({ children }) => (
             <code style={{ fontSize: '11px', fontFamily: 'monospace', color: '#c4b5fd', background: 'rgba(167,139,250,0.12)', border: '1px solid rgba(167,139,250,0.2)', padding: '2px 7px', borderRadius: '5px' }}>{children}</code>
           ),
           pre: ({ children }) => (
-            <pre style={{ background: 'rgba(139,92,246,0.08)', borderLeft: '2px solid #8b5cf6', padding: '10px 14px', margin: '8px 0', overflowX: 'auto' }}>{children}</pre>
+            <pre style={{ background: 'rgba(0,0,0,0.25)', borderLeft: '2px solid #8b5cf6', padding: '12px 14px', margin: '8px 0 12px', overflowX: 'auto', borderRadius: '6px', fontSize: '11px', color: '#ddd6fe', lineHeight: 1.6 }}>{children}</pre>
           ),
+          blockquote: ({ children }) => (
+            <blockquote style={{ borderLeft: '2px solid rgba(167,139,250,0.4)', paddingLeft: '12px', margin: '8px 0', color: '#9090a8' }}>{children}</blockquote>
+          ),
+          hr: () => <hr style={{ border: 'none', borderTop: '1px solid rgba(255,255,255,0.06)', margin: '12px 0' }} />,
         }}
       >
         {text}
@@ -206,86 +183,97 @@ export default function AnalysisRenderer({ content }: { content: string }) {
   const quickWins     = parseSection(content, 'Quick Wins');
   const whatsGood     = parseSection(content, "What's Actually Good") || parseSection(content, "What's Good");
 
-  const risks      = parseRisks(criticalRisks);
-  const quickItems = parseKeyValueSection(quickWins);
-  const goodItems  = parseKeyValueSection(whatsGood);
+  const criticalItems = parseNumberedBlocks(criticalRisks);
+  const archItems     = parseNumberedBlocks(architecture);
 
   const hasSections = execSummary || criticalRisks || architecture || security || performance || codeQuality;
 
   if (!hasSections) {
     return (
       <div style={{ fontFamily: 'sans-serif' }}>
-        <SimpleMarkdown text={content} />
+        <RichMarkdown text={content} />
       </div>
     );
   }
 
   return (
     <div style={{ fontFamily: 'sans-serif' }}>
+
+      {/* Executive Summary — prose */}
       {execSummary && (
         <CollapsibleSection dot="#f87171" title="Executive Summary">
-          {/* FIX: was a plain <p> tag — bold and code in the summary now render correctly */}
-          <SimpleMarkdown text={execSummary} />
+          <RichMarkdown text={execSummary} />
         </CollapsibleSection>
       )}
 
+      {/* Critical / High Risks — structured issue cards */}
       {criticalRisks && (
         <CollapsibleSection
           dot="#f87171" title="Critical / High Risks"
-          badge={risks.length > 0 ? `${risks.length} issue${risks.length > 1 ? 's' : ''}` : undefined}
+          badge={criticalItems.length > 0 ? `${criticalItems.length} issue${criticalItems.length > 1 ? 's' : ''}` : undefined}
           badgeColor="#f87171" badgeBg="rgba(248,113,113,0.12)" badgeBorder="rgba(248,113,113,0.2)"
         >
-          {risks.length > 0
-            ? risks.map((r, i) => <IssueBlock key={i} {...r} />)
-            : <SimpleMarkdown text={criticalRisks} />}
+          {criticalItems.length > 0
+            ? criticalItems.map((r, i) => <IssueBlock key={i} {...r} />)
+            : <RichMarkdown text={criticalRisks} />}
         </CollapsibleSection>
       )}
 
+      {/* Architecture & Design Issues — structured issue cards */}
       {architecture && (
-        <CollapsibleSection dot="#fb923c" title="Architecture & Design Issues">
-          <SimpleMarkdown text={architecture} />
+        <CollapsibleSection
+          dot="#fb923c" title="Architecture & Design Issues"
+          badge={archItems.length > 0 ? `${archItems.length} issue${archItems.length > 1 ? 's' : ''}` : undefined}
+          badgeColor="#fb923c" badgeBg="rgba(251,146,60,0.12)" badgeBorder="rgba(251,146,60,0.2)"
+        >
+          {archItems.length > 0
+            ? archItems.map((r, i) => <IssueBlock key={i} {...r} />)
+            : <RichMarkdown text={architecture} />}
         </CollapsibleSection>
       )}
 
+      {/* Security & Auth Review — full markdown, prose + lists */}
       {security && (
         <CollapsibleSection dot="#fb923c" title="Security & Auth Review">
-          <SimpleMarkdown text={security} />
+          <RichMarkdown text={security} />
         </CollapsibleSection>
       )}
 
+      {/* Performance & Reliability — full markdown */}
       {performance && (
         <CollapsibleSection dot="#a78bfa" title="Performance & Reliability">
-          <SimpleMarkdown text={performance} />
+          <RichMarkdown text={performance} />
         </CollapsibleSection>
       )}
 
+      {/* Code Quality — full markdown with score */}
       {codeQuality && (
         <CollapsibleSection dot="#a78bfa" title="Code Quality">
-          <SimpleMarkdown text={codeQuality} />
+          <RichMarkdown text={codeQuality} />
         </CollapsibleSection>
       )}
 
+      {/* Refactoring Priorities — full markdown, numbered list */}
       {refactoring && (
         <CollapsibleSection dot="#a78bfa" title="Refactoring Priorities">
-          <SimpleMarkdown text={refactoring} />
+          <RichMarkdown text={refactoring} />
         </CollapsibleSection>
       )}
 
+      {/* Quick Wins — full markdown, preserves current/replacement code */}
       {quickWins && (
         <CollapsibleSection dot="#4ade80" title="Quick Wins">
-          {quickItems.length > 0
-            ? quickItems.map((q, i) => <KeyValueBlock key={i} {...q} />)
-            : <SimpleMarkdown text={quickWins} />}
+          <RichMarkdown text={quickWins} />
         </CollapsibleSection>
       )}
 
+      {/* What's Actually Good — full markdown */}
       {whatsGood && (
         <CollapsibleSection dot="#4ade80" title="What's Actually Good">
-          {goodItems.length > 0
-            ? goodItems.map((g, i) => <KeyValueBlock key={i} {...g} />)
-            : <SimpleMarkdown text={whatsGood} />}
+          <RichMarkdown text={whatsGood} />
         </CollapsibleSection>
       )}
+
     </div>
   );
 }
