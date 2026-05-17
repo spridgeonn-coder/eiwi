@@ -39,7 +39,7 @@ async function fetchDirRecursive(
       if (item.type === 'file') {
         collected.push(item);
       } else if (item.type === 'dir') {
-        const skip = ['node_modules', '.git', '.next', 'dist', 'build', 'coverage', 'public', '.husky'];
+        const skip = ['node_modules', '.git', '.next', 'dist', 'build', 'coverage', 'public', '.husky', 'vendor'];
         if (!skip.includes(item.name)) {
           await fetchDirRecursive(repoFullName, token, item.path, depth + 1, collected);
         }
@@ -47,6 +47,92 @@ async function fetchDirRecursive(
     }
   } catch (_) {}
   return collected;
+}
+
+// Detect the primary language of the repo based on file extensions
+function detectLanguage(files: any[]): string {
+  const counts: Record<string, number> = {};
+  for (const f of files) {
+    const ext = f.name.split('.').pop()?.toLowerCase() || '';
+    counts[ext] = (counts[ext] || 0) + 1;
+  }
+  const order = ['ts', 'tsx', 'js', 'jsx', 'go', 'py', 'rb', 'rs', 'java', 'cs', 'cpp', 'c', 'php', 'swift', 'kt'];
+  for (const ext of order) {
+    if (counts[ext]) return ext;
+  }
+  return 'unknown';
+}
+
+// Returns true if the file should be included for analysis based on its extension
+function isSourceFile(name: string): boolean {
+  const lower = name.toLowerCase();
+
+  // Always include these specific files regardless of extension
+  const always = [
+    'readme.md', 'package.json', 'go.mod', 'go.sum', 'cargo.toml', 'cargo.lock',
+    'requirements.txt', 'pyproject.toml', 'setup.py', 'pom.xml', 'build.gradle',
+    'gemfile', 'composer.json', 'makefile', 'dockerfile',
+    'next.config.ts', 'next.config.js', 'middleware.ts', 'middleware.js',
+    '.env.example',
+  ];
+  if (always.includes(lower)) return true;
+
+  // Source file extensions — JS/TS ecosystem
+  if (lower.endsWith('.ts') || lower.endsWith('.tsx')) return true;
+  if (lower.endsWith('.js') || lower.endsWith('.jsx') || lower.endsWith('.mjs')) return true;
+
+  // Go
+  if (lower.endsWith('.go')) return true;
+
+  // Python
+  if (lower.endsWith('.py')) return true;
+
+  // Ruby
+  if (lower.endsWith('.rb')) return true;
+
+  // Rust
+  if (lower.endsWith('.rs')) return true;
+
+  // Java / Kotlin
+  if (lower.endsWith('.java') || lower.endsWith('.kt')) return true;
+
+  // C# / .NET
+  if (lower.endsWith('.cs')) return true;
+
+  // C / C++
+  if (lower.endsWith('.c') || lower.endsWith('.cpp') || lower.endsWith('.h') || lower.endsWith('.hpp')) return true;
+
+  // PHP
+  if (lower.endsWith('.php')) return true;
+
+  // Swift
+  if (lower.endsWith('.swift')) return true;
+
+  // Shell scripts
+  if (lower.endsWith('.sh') || lower.endsWith('.bash')) return true;
+
+  // Config files worth reading
+  if (lower.endsWith('.yaml') || lower.endsWith('.yml')) return true;
+  if (lower.endsWith('.toml')) return true;
+
+  return false;
+}
+
+function isNoisyFile(name: string): boolean {
+  const lower = name.toLowerCase();
+  return (
+    lower.includes('.test.') ||
+    lower.includes('.spec.') ||
+    lower.includes('_test.go') ||
+    lower.endsWith('.d.ts') ||
+    lower.includes('package-lock') ||
+    lower.includes('yarn.lock') ||
+    lower.includes('.min.js') ||
+    lower.includes('.min.css') ||
+    lower.endsWith('.pb.go') ||        // protobuf generated
+    lower.endsWith('_generated.go') || // generated Go
+    lower.endsWith('.generated.ts')    // generated TS
+  );
 }
 
 export async function POST(request: NextRequest) {
@@ -97,9 +183,7 @@ export async function POST(request: NextRequest) {
       }, { status: 400 });
     }
 
-    // FIX 1: Rate limit with canProceed pattern — catches socket/DNS failures
-    // that slip through the SDK's own error handling. Any exception at all
-    // means we block the request rather than silently allowing it through.
+    // Rate limit — fails closed on any exception
     let canProceed = false;
     try {
       const today = new Date();
@@ -127,7 +211,7 @@ export async function POST(request: NextRequest) {
       }, { status: 503 });
     }
 
-    // Check cache — skipped when force = true (Re-analyze button)
+    // Check cache — skipped when force = true
     if (!force) {
       try {
         const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
@@ -148,7 +232,7 @@ export async function POST(request: NextRequest) {
       } catch {}
     }
 
-    // Clean up stale in_progress rows older than 10 minutes before inserting
+    // Clean up stale in_progress rows older than 10 minutes
     try {
       const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString();
       await supabase
@@ -186,10 +270,7 @@ export async function POST(request: NextRequest) {
       console.error('Log insert exception:', e);
     }
 
-    // FIX 2: Validate GitHub token before running the full analysis.
-    // If the user revoked OAuth access, fetchDirRecursive silently returns
-    // an empty array and Claude reports "No files found" — no error shown.
-    // A single cheap API call here catches revoked tokens upfront.
+    // Validate GitHub token
     try {
       const tokenCheck = await fetch('https://api.github.com/user', {
         headers: { Authorization: `Bearer ${token}` }
@@ -211,40 +292,52 @@ export async function POST(request: NextRequest) {
 
     const allFiles = await fetchDirRecursive(repoFullName, token);
 
+    // Detect repo language so we can prioritize the right files
+    const detectedLang = detectLanguage(allFiles);
+    console.log(`Detected language: ${detectedLang} for ${repoFullName}`);
+
+    // Language-specific priority paths
+    const priorityPaths: Record<string, string[]> = {
+      go:   ['cmd', 'internal', 'pkg', 'api', 'handler', 'middleware', 'auth', 'server', 'main', 'config'],
+      py:   ['app', 'src', 'api', 'auth', 'middleware', 'models', 'views', 'routes', 'config', 'main'],
+      rb:   ['app', 'lib', 'config', 'controllers', 'models', 'middleware'],
+      rs:   ['src', 'main', 'lib', 'auth', 'api', 'handler'],
+      java: ['src/main', 'controller', 'service', 'auth', 'security', 'config'],
+      ts:   ['middleware', 'auth', 'api', 'route', 'supabase', 'config', 'env'],
+      tsx:  ['middleware', 'auth', 'api', 'route', 'supabase', 'config', 'env'],
+      js:   ['middleware', 'auth', 'api', 'route', 'config', 'env'],
+      jsx:  ['middleware', 'auth', 'api', 'route', 'config', 'env'],
+    };
+    const langPriority = priorityPaths[detectedLang] || ['auth', 'api', 'middleware', 'config', 'main', 'src'];
+
     const priorityFiles = allFiles
-      .filter((f: any) => {
-        const name = f.name.toLowerCase();
-        return (
-          name.endsWith('.tsx') ||
-          name.endsWith('.ts') ||
-          name.endsWith('.js') ||
-          name.endsWith('.jsx') ||
-          name.endsWith('.env.example') ||
-          name === 'readme.md' ||
-          name === 'package.json' ||
-          name === 'next.config.ts' ||
-          name === 'next.config.js' ||
-          name === 'middleware.ts' ||
-          name === 'middleware.js'
-        );
-      })
-      .filter((f: any) => {
-        const name = f.name.toLowerCase();
-        return (
-          !name.includes('.test.') &&
-          !name.includes('.spec.') &&
-          !name.includes('.d.ts') &&
-          !name.includes('package-lock') &&
-          !name.includes('yarn.lock')
-        );
-      })
+      .filter((f: any) => isSourceFile(f.name))
+      .filter((f: any) => !isNoisyFile(f.name))
       .sort((a: any, b: any) => {
-        const priority = ['middleware', 'auth', 'api', 'route', 'supabase', 'config', 'env'];
-        const aScore = priority.findIndex(p => a.path.toLowerCase().includes(p));
-        const bScore = priority.findIndex(p => b.path.toLowerCase().includes(p));
+        const aScore = langPriority.findIndex(p => a.path.toLowerCase().includes(p));
+        const bScore = langPriority.findIndex(p => b.path.toLowerCase().includes(p));
         return (aScore === -1 ? 99 : aScore) - (bScore === -1 ? 99 : bScore);
       })
       .slice(0, 40);
+
+    // FIX: Guard against README-only or empty analysis.
+    // Count how many actual source files (non-readme, non-config) were found.
+    const actualSourceFiles = priorityFiles.filter((f: any) => {
+      const name = f.name.toLowerCase();
+      return name !== 'readme.md' && name !== 'package.json' &&
+             name !== 'go.mod' && name !== 'go.sum' &&
+             name !== 'makefile' && name !== 'dockerfile' &&
+             !name.endsWith('.yaml') && !name.endsWith('.yml') &&
+             !name.endsWith('.toml') && !name.endsWith('.txt');
+    });
+
+    if (actualSourceFiles.length === 0) {
+      if (logId) await supabase.from('analysis_log').update({ status: 'failed' }).eq('id', logId);
+      logId = null;
+      return NextResponse.json({
+        error: `No source files found to analyze. eiwi found ${allFiles.length} total files but none matched supported languages (.go, .ts, .js, .py, .rb, .rs, .java, etc). The repository may be empty, documentation-only, or use a language not yet supported.`
+      }, { status: 422 });
+    }
 
     let codeContext = '';
     for (const file of priorityFiles) {
@@ -259,12 +352,8 @@ export async function POST(request: NextRequest) {
     }
 
     let analysis = "No analysis generated.";
-
-    // FIX 3: try/finally guarantees the log row is always resolved.
-    // Previously if Vercel killed the function mid-execution (e.g. at 200s),
-    // the catch block never ran and the row stayed in_progress forever.
-    // finally always runs — even when the process is being terminated.
     let logUpdated = false;
+
     try {
       const response = await anthropic.messages.create({
         model: "claude-sonnet-4-5",
@@ -309,6 +398,7 @@ CRITICAL FORMATTING RULE: You must use EXACTLY these ## section headings, spelle
 IMPORTANT: Only flag issues where the vulnerable pattern exists and no fix is already implemented. If you see a fix already in place, acknowledge it in "What's Actually Good" instead of flagging it as an issue.
 
 Repository: ${repoFullName}
+Primary language detected: ${detectedLang}
 Files reviewed: ${priorityFiles.map((f: any) => f.path).join(', ')}
 
 CODE:
@@ -383,7 +473,6 @@ Reason: [one sentence naming specific files and changes still needed]`
         cacheCreated: (response.usage as any).cache_creation_input_tokens ?? 0,
       });
 
-      // Parse and save results
       const scoresSection = analysis.match(/## Scores\s*([\s\S]*?)(?=\n##\s|$)/i)?.[1] || '';
       const qualityMatch = scoresSection.match(/Quality:\s*(\d+)/i);
       const securityMatch = scoresSection.match(/Security:\s*(\d+)/i);
@@ -463,9 +552,6 @@ Reason: [one sentence naming specific files and changes still needed]`
       return NextResponse.json({ error: "Analysis failed. Please try again." }, { status: 500 });
 
     } finally {
-      // FIX 3: If we never successfully updated the status (e.g. Vercel killed
-      // the function at 200s before the update ran), delete the row entirely
-      // so it doesn't block future analysis attempts.
       if (logId && supabaseClient && !logUpdated) {
         try {
           const { data } = await supabaseClient
